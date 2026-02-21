@@ -16,6 +16,16 @@ function fmtIV(n) {
   return `${n.toFixed(1)}%`;
 }
 
+function fmtGreek(n) {
+  if (n == null) return '—';
+  return n.toFixed(4);
+}
+
+function fmtGreek2(n) {
+  if (n == null) return '—';
+  return n.toFixed(2);
+}
+
 function daysUntil(dateStr) {
   const d = new Date(dateStr + 'T00:00:00');
   const now = new Date();
@@ -31,9 +41,25 @@ function formatExpiry(dateStr) {
   return `${month} ${day} (${dte}d)`;
 }
 
-function ChainTable({ options, type, volumeThreshold }) {
+function ChainTable({ options, type, volumeThreshold, onAddLeg, selectedExpiry }) {
   if (!options || options.length === 0) {
     return <div className="loading">No {type} data available</div>;
+  }
+
+  function handleRowClick(opt) {
+    if (!onAddLeg) return;
+    const mid = (opt.bid != null && opt.ask != null) ? +((opt.bid + opt.ask) / 2).toFixed(2) : opt.last_price;
+    onAddLeg({
+      type: type === 'call' ? 'Call' : 'Put',
+      strike: opt.strike,
+      expiration: selectedExpiry,
+      action: 'buy',
+      quantity: 1,
+      premium: mid,
+      bid: opt.bid,
+      ask: opt.ask,
+      iv: opt.implied_volatility,
+    });
   }
 
   return (
@@ -48,11 +74,20 @@ function ChainTable({ options, type, volumeThreshold }) {
             <th>Vol</th>
             <th>OI</th>
             <th>IV</th>
+            <th className="greek-col">Delta</th>
+            <th className="greek-col">Gamma</th>
+            <th className="greek-col">Theta</th>
+            <th className="greek-col">Vega</th>
           </tr>
         </thead>
         <tbody>
           {options.map((opt) => (
-            <tr key={`${type}-${opt.strike}`} className={opt.in_the_money ? 'itm' : ''}>
+            <tr
+              key={`${type}-${opt.strike}`}
+              className={`${opt.in_the_money ? 'itm' : ''} chain-row-clickable`}
+              onClick={() => handleRowClick(opt)}
+              title={`Click to add ${type} @ ${opt.strike} to strategy`}
+            >
               <td className="strike-col">{fmt(opt.strike)}</td>
               <td>{fmt(opt.last_price)}</td>
               <td>{fmt(opt.bid)}</td>
@@ -64,6 +99,10 @@ function ChainTable({ options, type, volumeThreshold }) {
                 {opt.open_interest != null ? fmtInt(opt.open_interest) : <span className="nil">—</span>}
               </td>
               <td>{fmtIV(opt.implied_volatility)}</td>
+              <td className="greek-cell">{opt.delta != null ? fmtGreek2(opt.delta) : '—'}</td>
+              <td className="greek-cell">{fmtGreek(opt.gamma)}</td>
+              <td className="greek-cell">{opt.theta != null ? fmtGreek2(opt.theta) : '—'}</td>
+              <td className="greek-cell">{opt.vega != null ? fmtGreek2(opt.vega) : '—'}</td>
             </tr>
           ))}
         </tbody>
@@ -72,16 +111,15 @@ function ChainTable({ options, type, volumeThreshold }) {
   );
 }
 
-export default function OptionsChain({ symbol, currentPrice }) {
+export default function OptionsChain({ symbol, currentPrice, onAddLeg }) {
   const [expirations, setExpirations] = useState([]);
   const [selectedExpiry, setSelectedExpiry] = useState(null);
   const [chain, setChain] = useState(null);
-  const [viewType, setViewType] = useState('both'); // calls, puts, both
-  const [strikeRange, setStrikeRange] = useState(20); // percentage
+  const [viewType, setViewType] = useState('both');
+  const [strikeRange, setStrikeRange] = useState(20);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  // Fetch expirations when symbol changes
   useEffect(() => {
     let cancelled = false;
     setExpirations([]);
@@ -105,7 +143,6 @@ export default function OptionsChain({ symbol, currentPrice }) {
     return () => { cancelled = true; };
   }, [symbol]);
 
-  // Fetch chain when expiry changes
   useEffect(() => {
     if (!selectedExpiry) return;
     let cancelled = false;
@@ -127,7 +164,6 @@ export default function OptionsChain({ symbol, currentPrice }) {
     return () => { cancelled = true; };
   }, [symbol, selectedExpiry]);
 
-  // Filter by strike range
   function filterByStrike(options) {
     if (!options || !currentPrice) return options || [];
     const low = currentPrice * (1 - strikeRange / 100);
@@ -135,7 +171,6 @@ export default function OptionsChain({ symbol, currentPrice }) {
     return options.filter((o) => o.strike >= low && o.strike <= high);
   }
 
-  // Compute volume threshold for highlighting (top 20% of volume across all visible options)
   function getVolumeThreshold() {
     if (!chain) return Infinity;
     const allOpts = [...(chain.calls || []), ...(chain.puts || [])];
@@ -151,7 +186,6 @@ export default function OptionsChain({ symbol, currentPrice }) {
   const filteredPuts = filterByStrike(chain?.puts);
   const volumeThreshold = getVolumeThreshold();
 
-  // Show max 8 expiry tabs, rest in overflow
   const visibleExpiries = expirations.slice(0, 8);
   const overflowExpiries = expirations.slice(8);
   const isOverflowSelected = overflowExpiries.includes(selectedExpiry);
@@ -230,17 +264,17 @@ export default function OptionsChain({ symbol, currentPrice }) {
           <div className="chain-side-by-side">
             <div className="chain-section calls">
               <h3>Calls</h3>
-              <ChainTable options={filteredCalls} type="call" volumeThreshold={volumeThreshold} />
+              <ChainTable options={filteredCalls} type="call" volumeThreshold={volumeThreshold} onAddLeg={onAddLeg} selectedExpiry={selectedExpiry} />
             </div>
             <div className="chain-section puts">
               <h3>Puts</h3>
-              <ChainTable options={filteredPuts} type="put" volumeThreshold={volumeThreshold} />
+              <ChainTable options={filteredPuts} type="put" volumeThreshold={volumeThreshold} onAddLeg={onAddLeg} selectedExpiry={selectedExpiry} />
             </div>
           </div>
         ) : viewType === 'calls' ? (
-          <ChainTable options={filteredCalls} type="call" volumeThreshold={volumeThreshold} />
+          <ChainTable options={filteredCalls} type="call" volumeThreshold={volumeThreshold} onAddLeg={onAddLeg} selectedExpiry={selectedExpiry} />
         ) : (
-          <ChainTable options={filteredPuts} type="put" volumeThreshold={volumeThreshold} />
+          <ChainTable options={filteredPuts} type="put" volumeThreshold={volumeThreshold} onAddLeg={onAddLeg} selectedExpiry={selectedExpiry} />
         )
       )}
     </div>

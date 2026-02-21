@@ -4,6 +4,9 @@ from fastapi.middleware.cors import CORSMiddleware
 
 from data_provider import YFinanceProvider
 from routes.market import create_market_routes
+from routes.portfolio import create_portfolio_routes
+from routes.dashboard import create_dashboard_routes
+from routes.recommender import create_recommender_routes
 
 app = FastAPI(title="Options Strategy Analyzer API")
 
@@ -16,6 +19,9 @@ app.add_middleware(
 
 provider = YFinanceProvider()
 app.include_router(create_market_routes(provider))
+app.include_router(create_portfolio_routes(provider))
+app.include_router(create_dashboard_routes(provider))
+app.include_router(create_recommender_routes(provider))
 
 
 @app.get("/api/health")

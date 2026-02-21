@@ -1,0 +1,38 @@
+[
+  {
+    "ticker": "SNAP",
+    "asset_type": "stock",
+    "quantity": 100000,
+    "avg_cost": 5.5,
+    "strike": null,
+    "expiration": null,
+    "id": "7952aea69a24"
+  },
+  {
+    "ticker": "NOW",
+    "asset_type": "stock",
+    "quantity": 1000,
+    "avg_cost": 106.0,
+    "strike": null,
+    "expiration": null,
+    "id": "90c537a2cabc"
+  },
+  {
+    "ticker": "TEAM",
+    "asset_type": "stock",
+    "quantity": 10000,
+    "avg_cost": 85.0,
+    "strike": null,
+    "expiration": null,
+    "id": "121d919a1bf6"
+  },
+  {
+    "ticker": "SNAP",
+    "asset_type": "call",
+    "quantity": 100,
+    "avg_cost": 0.4,
+    "strike": 7.0,
+    "expiration": "2026-06-12",
+    "id": "beee4cce2b85"
+  }
+]

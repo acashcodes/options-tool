@@ -324,12 +324,21 @@ After implementing Greeks, run a comprehensive validation suite before proceedin
 - Ranked recommendations with inline payoff charts
 - "Load into builder" functionality
 
+### Phase 6.5: Full Formula & Strategy Stress Test
+- **Deferred from Phase 3** — run comprehensive Greeks stress test suite (see "Greeks Stress Testing" section above)
+- Validate all 15 strategy templates produce correct payoff diagrams against known references
+- Verify portfolio Greeks aggregation accuracy (delta, gamma, theta, vega, beta-weighted delta)
+- Cross-validate probability of profit calculations
+- Validate IV rank / IV percentile computations against broker data
+- Generate a test report with PASS/FAIL for every test case
+
 ### Phase 7: Polish + Future-Proofing
 - Strategy comparison view (Section 2F)
 - UI refinements, animations, hover effects
 - Error handling and edge cases
 - Performance optimization
 - Document how to swap in Schwab API via the DataProvider abstraction (README instructions for future migration)
+- **Alerts & News upgrade:** Rework the Alerts & Flags section into a richer panel — consider adding a news/headlines feed (via a financial news API or RSS), smarter alert grouping, alert history/dismissal, and custom alert thresholds configurable per ticker
 
 ---
 

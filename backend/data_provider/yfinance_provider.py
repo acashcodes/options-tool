@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import math
-from datetime import datetime
+from datetime import datetime, date
 from typing import Any, Optional
 
 import yfinance as yf
 
 from .base import DataProvider
+from greeks import compute_greeks
 
 
 class YFinanceProvider(DataProvider):
@@ -52,6 +53,12 @@ class YFinanceProvider(DataProvider):
             except Exception:
                 pass
 
+        # --- IV / HV metrics (best-effort, nulls on failure) -----------
+        iv_metrics = self.get_iv_metrics(
+            symbol,
+            current_price=price if price is not None else None,
+        )
+
         return {
             "symbol": symbol.upper(),
             "name": info.get("shortName") or info.get("longName") or symbol.upper(),
@@ -64,6 +71,42 @@ class YFinanceProvider(DataProvider):
             "earnings_date": earnings_date,
             "market_cap": info.get("marketCap"),
             "volume": info.get("volume") or info.get("regularMarketVolume"),
+            "current_iv": iv_metrics.get("current_iv"),
+            "hv_20d": iv_metrics.get("hv_20d"),
+            "iv_hv_ratio": iv_metrics.get("iv_hv_ratio"),
+            "iv_rank": iv_metrics.get("iv_rank"),
+            "iv_percentile": iv_metrics.get("iv_percentile"),
+            "sector": info.get("sector"),
+            "industry": info.get("industry"),
+            "beta": _safe_float(info.get("beta")),
+        }
+
+    def get_quote_light(self, symbol: str) -> dict[str, Any]:
+        """Fast quote: price + change, no IV/HV computation."""
+        ticker = yf.Ticker(symbol)
+        info = ticker.info
+
+        price = _get_fast_info_attr(ticker, "last_price")
+        if price is None:
+            price = info.get("currentPrice") or info.get("regularMarketPrice")
+
+        previous_close = info.get("previousClose") or info.get("regularMarketPreviousClose")
+        if previous_close is None:
+            previous_close = _get_fast_info_attr(ticker, "previous_close")
+
+        change = None
+        change_percent = None
+        if price is not None and previous_close is not None:
+            change = round(price - previous_close, 2)
+            change_percent = round((change / previous_close) * 100, 2) if previous_close else None
+
+        return {
+            "symbol": symbol.upper(),
+            "name": info.get("shortName") or info.get("longName") or symbol.upper(),
+            "price": round(price, 2) if price is not None else None,
+            "previous_close": previous_close,
+            "change": change,
+            "change_percent": change_percent,
         }
 
     def get_options_expirations(self, symbol: str) -> list[str]:
@@ -83,6 +126,10 @@ class YFinanceProvider(DataProvider):
         except Exception:
             pass
 
+        # Compute time to expiration in years
+        t_years = _time_to_expiry_years(expiration)
+        risk_free_rate = 0.045  # ~4.5% approximate current rate
+
         def process_options(df, option_type: str) -> list[dict]:
             rows = []
             for _, row in df.iterrows():
@@ -94,9 +141,23 @@ class YFinanceProvider(DataProvider):
 
                 iv = row.get("impliedVolatility")
                 if iv is not None and not (isinstance(iv, float) and math.isnan(iv)):
-                    iv = round(float(iv) * 100, 2)  # Convert to percentage
+                    iv_decimal = float(iv)  # yfinance gives decimal (e.g. 0.30)
+                    iv_pct = round(iv_decimal * 100, 2)  # Convert to percentage for display
                 else:
-                    iv = None
+                    iv_decimal = None
+                    iv_pct = None
+
+                # Compute Greeks if we have what we need
+                greeks = {}
+                if price is not None and iv_decimal is not None and iv_decimal > 0 and t_years > 0:
+                    greeks = compute_greeks(
+                        S=price,
+                        K=strike,
+                        t=t_years,
+                        r=risk_free_rate,
+                        sigma=iv_decimal,
+                        option_type=option_type,
+                    )
 
                 rows.append({
                     "contract_symbol": row.get("contractSymbol", ""),
@@ -106,8 +167,12 @@ class YFinanceProvider(DataProvider):
                     "ask": _safe_float(row.get("ask")),
                     "volume": _safe_int(row.get("volume")),
                     "open_interest": _safe_int(row.get("openInterest")),
-                    "implied_volatility": iv,
+                    "implied_volatility": iv_pct,
                     "in_the_money": itm,
+                    "delta": greeks.get("delta"),
+                    "gamma": greeks.get("gamma"),
+                    "theta": greeks.get("theta"),
+                    "vega": greeks.get("vega"),
                 })
             return rows
 
@@ -117,13 +182,26 @@ class YFinanceProvider(DataProvider):
             "underlying_price": round(price, 2) if price is not None else None,
         }
 
-    def get_history(self, symbol: str, period: str = "1y") -> list[dict[str, Any]]:
+    def get_history(self, symbol: str, period: str = "1y", interval: str = "1d") -> list[dict[str, Any]]:
         ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period)
+
+        # 3y is not a native yfinance period — use start date instead
+        if period == "3y":
+            from datetime import timedelta
+            start = date.today() - timedelta(days=3 * 365)
+            hist = ticker.history(start=str(start), interval=interval)
+        else:
+            hist = ticker.history(period=period, interval=interval)
+
+        intraday = interval in ("1m", "2m", "5m", "15m", "30m", "60m", "90m", "1h")
         rows = []
-        for date, row in hist.iterrows():
+        for dt, row in hist.iterrows():
+            if intraday:
+                date_str = str(dt)
+            else:
+                date_str = str(dt.date()) if hasattr(dt, "date") else str(dt)
             rows.append({
-                "date": str(date.date()) if hasattr(date, "date") else str(date),
+                "date": date_str,
                 "open": round(float(row["Open"]), 2),
                 "high": round(float(row["High"]), 2),
                 "low": round(float(row["Low"]), 2),
@@ -166,3 +244,14 @@ def _safe_int(val) -> int | None:
         return i
     except (ValueError, TypeError):
         return None
+
+
+def _time_to_expiry_years(expiration: str) -> float:
+    """Convert an expiration date string (YYYY-MM-DD) to time in years from today."""
+    try:
+        exp_date = datetime.strptime(expiration, "%Y-%m-%d").date()
+        today = date.today()
+        days = (exp_date - today).days
+        return max(days, 0) / 365.0
+    except Exception:
+        return 0.0
