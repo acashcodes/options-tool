@@ -103,6 +103,10 @@ export function getEnrichedPortfolio() {
   return request('/portfolio/enriched');
 }
 
+export function getPortfolioRisk() {
+  return request('/portfolio/risk');
+}
+
 export function uploadCSV(file) {
   return requestUpload('/portfolio/import/csv', file);
 }
@@ -163,6 +167,38 @@ export function updateAlertThresholds(thresholds) {
 
 export function getDashboardNews() {
   return request('/dashboard/news');
+}
+
+// ===== Newsletter =====
+
+export function getNewsletterLatest() {
+  return request('/newsletter/latest');
+}
+
+export function getNewsletterIssue(issueId) {
+  return request(`/newsletter/issues/${encodeURIComponent(issueId)}`);
+}
+
+export function getNewsletterHistory(limit = 50, offset = 0) {
+  return request(`/newsletter/history?limit=${limit}&offset=${offset}`);
+}
+
+export function markNewsletterRead(issueId) {
+  return requestPost('/newsletter/mark_read', { issue_id: issueId });
+}
+
+export function syncNewsletter() {
+  return requestPost('/newsletter/sync_now', {});
+}
+
+// ===== Strategy Analysis =====
+
+export function analyzeStrategy(payload) {
+  return requestPost('/strategy/analyze', payload);
+}
+
+export function getAssumptions() {
+  return request('/assumptions');
 }
 
 // ===== Strategy Recommender =====

@@ -5,7 +5,7 @@ from __future__ import annotations
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
-from typing import Any, Optional
+from typing import Any, Optional, TYPE_CHECKING
 
 from fastapi import APIRouter, HTTPException
 from pydantic import BaseModel
@@ -14,6 +14,9 @@ from data_provider import DataProvider
 import watchlist_store as wl_store
 import portfolio_store as port_store
 import alerts_store
+
+if TYPE_CHECKING:
+    from newsletter.service import NewsletterService
 
 
 class WatchlistAdd(BaseModel):
@@ -32,7 +35,7 @@ class ThresholdsUpdate(BaseModel):
     expiration_days: Optional[int] = None
 
 
-def create_dashboard_routes(provider: DataProvider) -> APIRouter:
+def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional["NewsletterService"] = None) -> APIRouter:
     router = APIRouter(prefix="/api/dashboard")
 
     # ---- Market Overview ----
@@ -51,12 +54,23 @@ def create_dashboard_routes(provider: DataProvider) -> APIRouter:
         def fetch_one(key: str, symbol: str) -> tuple[str, dict]:
             try:
                 q = provider.get_quote_light(symbol)
-                return key, {
+                result = {
                     "symbol": q.get("symbol", symbol),
                     "price": q.get("price"),
                     "change": q.get("change"),
                     "change_percent": q.get("change_percent"),
                 }
+                # Fix ^TNX scaling: index is 10x the yield
+                if key == "tnx" and result["price"] is not None:
+                    from assumptions import tnx_to_yield_percent
+                    raw_price = result["price"]
+                    raw_change = result["change"]
+                    result["price"] = tnx_to_yield_percent(raw_price)
+                    if raw_change is not None:
+                        result["change"] = raw_change / 10.0
+                        prev_yield = result["price"] - result["change"]
+                        result["change_percent"] = (result["change"] / prev_yield * 100) if prev_yield else None
+                return key, result
             except Exception:
                 return key, {
                     "symbol": symbol,
@@ -271,12 +285,21 @@ def create_dashboard_routes(provider: DataProvider) -> APIRouter:
 
         active_count = sum(1 for a in all_alerts if not a["dismissed"])
 
+        # Include newsletter data if available
+        newsletter = None
+        if newsletter_service:
+            try:
+                newsletter = newsletter_service.get_latest()
+            except Exception:
+                pass
+
         return {
             "alerts": all_alerts,
             "groups": grouped,
             "active_count": active_count,
             "dismissed_count": len(dismissed),
             "thresholds": thresholds,
+            "newsletter": newsletter,
         }
 
     @router.post("/alerts/dismiss")

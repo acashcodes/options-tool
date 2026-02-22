@@ -1,0 +1,135 @@
+"""Newsletter service — orchestrates parsing, relevance, headline, and storage."""
+
+from __future__ import annotations
+
+import logging
+import uuid
+from typing import Optional
+
+from .config import NewsletterConfig
+from .crypto import EmailCrypto
+from .parser import parse_email
+from .relevance import extract_relevance
+from .openai_headline import generate_headline
+from .store import NewsletterStore
+
+logger = logging.getLogger(__name__)
+
+
+class NewsletterService:
+    """Main service that processes raw emails end-to-end."""
+
+    def __init__(self, config: NewsletterConfig) -> None:
+        self.config = config
+        self.store = NewsletterStore(config.db_path)
+        self.crypto = EmailCrypto(config.encryption_key) if config.encryption_key else None
+        self.store.init_db()
+
+    def process_raw_email(
+        self,
+        raw_bytes: bytes,
+        portfolio_tickers: list[str],
+        watchlist_tickers: list[str],
+    ) -> Optional[dict]:
+        """Process a raw MIME email: parse, extract, headline, encrypt, store.
+
+        Returns the stored issue dict or None if skipped (duplicate / not in allowlist).
+        """
+        parsed = parse_email(raw_bytes)
+
+        # Check allowlist
+        if self.config.from_allowlist:
+            if parsed.from_email.lower() not in [
+                e.lower() for e in self.config.from_allowlist
+            ]:
+                logger.info("Skipping email from %s (not in allowlist)", parsed.from_email)
+                return None
+
+        # Skip duplicates
+        if parsed.message_id and self.store.message_id_exists(parsed.message_id):
+            logger.info("Skipping duplicate message_id: %s", parsed.message_id)
+            return None
+
+        # Extract relevance
+        body = parsed.text_body or parsed.html_body
+        relevance = extract_relevance(body, portfolio_tickers, watchlist_tickers)
+
+        # Generate headline
+        all_bullets = (
+            relevance.context_bullets
+            + relevance.portfolio_bullets
+            + relevance.watchlist_bullets
+        )
+        headline = generate_headline(
+            all_bullets,
+            parsed.subject,
+            self.config.openai_api_key,
+            self.config.openai_model,
+            self.config.openai_timeout,
+        )
+
+        # Derive source name from email
+        source_name = _derive_source_name(parsed.from_email)
+
+        # Encrypt raw content
+        raw_mime_enc = self.crypto.encrypt(parsed.raw_mime) if self.crypto else None
+        raw_text_enc = self.crypto.encrypt(parsed.text_body) if self.crypto and parsed.text_body else None
+        raw_html_enc = self.crypto.encrypt(parsed.html_body) if self.crypto and parsed.html_body else None
+
+        issue = {
+            "id": str(uuid.uuid4()),
+            "source_name": source_name,
+            "from_email": parsed.from_email,
+            "subject": parsed.subject,
+            "received_at": parsed.received_at,
+            "message_id": parsed.message_id,
+            "web_url": parsed.web_url,
+            "raw_mime_enc": raw_mime_enc,
+            "raw_text_enc": raw_text_enc,
+            "raw_html_enc": raw_html_enc,
+            "headline": headline,
+            "context_bullets": relevance.context_bullets,
+            "portfolio_bullets": relevance.portfolio_bullets,
+            "watchlist_bullets": relevance.watchlist_bullets,
+        }
+
+        self.store.insert_issue(issue)
+        logger.info("Stored newsletter issue %s: %s", issue["id"], headline)
+        return issue
+
+    def get_latest(self) -> Optional[dict]:
+        return self.store.get_latest()
+
+    def get_issue(self, issue_id: str) -> Optional[dict]:
+        return self.store.get_issue(issue_id, include_encrypted=False)
+
+    def get_issue_full(self, issue_id: str) -> Optional[dict]:
+        """Get issue including decrypted raw content."""
+        issue = self.store.get_issue(issue_id, include_encrypted=True)
+        if not issue:
+            return None
+        # Decrypt raw content if available
+        if self.crypto:
+            if issue.get("raw_text_enc"):
+                issue["raw_text"] = self.crypto.decrypt_text(issue["raw_text_enc"])
+            if issue.get("raw_html_enc"):
+                issue["raw_html"] = self.crypto.decrypt_text(issue["raw_html_enc"])
+        # Remove encrypted blobs from response
+        issue.pop("raw_mime_enc", None)
+        issue.pop("raw_text_enc", None)
+        issue.pop("raw_html_enc", None)
+        return issue
+
+    def get_history(self, limit: int = 50, offset: int = 0) -> list[dict]:
+        return self.store.get_history(limit, offset)
+
+    def mark_read(self, issue_id: str) -> bool:
+        return self.store.mark_read(issue_id)
+
+
+def _derive_source_name(from_email: str) -> str:
+    """Derive a display name from the sender email (e.g. 'tmtbreakout' -> 'TMT Breakout')."""
+    local = from_email.split("@")[0] if "@" in from_email else from_email
+    # Split on common separators and title-case
+    parts = local.replace("_", " ").replace("-", " ").replace(".", " ").split()
+    return " ".join(p.capitalize() for p in parts) if parts else from_email

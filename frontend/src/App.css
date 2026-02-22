@@ -1117,6 +1117,11 @@
   color: var(--accent-red);
 }
 
+.leg-type-badge.type-stock {
+  background: rgba(52, 152, 219, 0.12);
+  color: #3498db;
+}
+
 .action-toggle {
   background: none;
   border: 1px solid var(--border);
@@ -2735,6 +2740,202 @@
   white-space: nowrap;
 }
 
+/* ===== Newsletter Highlights Card ===== */
+.newsletter-card {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 14px 16px;
+  margin-bottom: 12px;
+}
+
+.newsletter-card.newsletter-unread {
+  border-left: 3px solid var(--accent-cyan);
+}
+
+.newsletter-card-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.newsletter-source {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+.newsletter-time {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.newsletter-headline {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: 1.4;
+  margin-bottom: 10px;
+}
+
+.newsletter-section {
+  margin-bottom: 8px;
+}
+
+.newsletter-section-toggle {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  transition: color 0.15s;
+}
+
+.newsletter-section-toggle:hover {
+  color: var(--text-primary);
+}
+
+.newsletter-section-icon {
+  display: inline-block;
+  transition: transform 0.15s;
+  font-size: 10px;
+}
+
+.newsletter-section-toggle.expanded .newsletter-section-icon {
+  transform: rotate(90deg);
+}
+
+.newsletter-bullets {
+  list-style: none;
+  padding: 0;
+  margin: 6px 0 0;
+}
+
+.newsletter-bullets li {
+  font-size: 12px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  padding: 3px 0 3px 14px;
+  position: relative;
+}
+
+.newsletter-bullets li::before {
+  content: "\2022";
+  position: absolute;
+  left: 0;
+  color: var(--text-muted);
+}
+
+.newsletter-bullets-portfolio li::before {
+  color: var(--accent-cyan);
+}
+
+.newsletter-bullets-watchlist li::before {
+  color: var(--accent-blue);
+}
+
+.newsletter-card-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 10px;
+  padding-top: 8px;
+  border-top: 1px solid var(--border);
+}
+
+.newsletter-action-btn {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-secondary);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 12px;
+  cursor: pointer;
+  text-decoration: none;
+  transition: all 0.15s;
+}
+
+.newsletter-action-btn:hover {
+  background: rgba(0, 212, 170, 0.08);
+  border-color: rgba(0, 212, 170, 0.3);
+  color: var(--accent-cyan);
+}
+
+/* Newsletter history panel */
+.nl-history-panel {
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 12px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.nl-history-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.nl-history-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.nl-history-item {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  transition: background 0.15s;
+}
+
+.nl-history-item:hover {
+  background: var(--bg-secondary);
+}
+
+.nl-history-item.nl-unread {
+  font-weight: 600;
+}
+
+.nl-history-source {
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--accent-cyan);
+  min-width: 70px;
+  flex-shrink: 0;
+}
+
+.nl-history-headline {
+  flex: 1;
+  color: var(--text-secondary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.nl-history-time {
+  font-size: 10px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
 /* ===== Watchlist Section ===== */
 .watchlist-section {
   margin-bottom: 24px;
@@ -3375,4 +3576,136 @@
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+}
+
+/* ========= Risk Panel ========= */
+
+.risk-panel {
+  margin-top: 8px;
+}
+
+.risk-panel h3 {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+  margin-bottom: 12px;
+}
+
+.risk-empty {
+  color: var(--text-muted);
+  font-size: 13px;
+}
+
+.risk-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.risk-card {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+}
+
+.risk-card-wide {
+  grid-column: span 2;
+}
+
+.risk-card-label {
+  display: block;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  margin-bottom: 6px;
+}
+
+.risk-card-value {
+  display: block;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.risk-card-sub {
+  display: block;
+  font-size: 11px;
+  color: var(--text-muted);
+  margin-top: 2px;
+}
+
+.risk-beta-list,
+.risk-corr-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.risk-beta-item,
+.risk-corr-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+.risk-beta-ticker,
+.risk-corr-pair {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.risk-beta-val,
+.risk-corr-val {
+  font-weight: 500;
+  font-variant-numeric: tabular-nums;
+}
+
+.risk-flag {
+  font-size: 9px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: #ff4757;
+  background: rgba(255, 71, 87, 0.15);
+  border-radius: 3px;
+  padding: 1px 4px;
+}
+
+.risk-stress-grid {
+  display: grid;
+  grid-template-columns: repeat(6, 1fr);
+  gap: 8px;
+}
+
+.risk-stress-item {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 4px;
+  background: var(--bg-primary);
+  border-radius: 6px;
+}
+
+.risk-stress-move {
+  font-size: 12px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+.risk-stress-pnl {
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+
+.text-yellow {
+  color: #ffa502;
 }
