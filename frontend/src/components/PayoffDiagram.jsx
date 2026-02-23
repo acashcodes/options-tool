@@ -393,7 +393,7 @@ export default function PayoffDiagram({ legs, currentPrice, title }) {
                 <Line
                   type="monotone"
                   dataKey="preExpPL"
-                  stroke="#3498db"
+                  stroke="#2563eb"
                   strokeWidth={2}
                   strokeDasharray="6 3"
                   dot={false}

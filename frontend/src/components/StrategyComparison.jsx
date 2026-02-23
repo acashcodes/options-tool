@@ -144,7 +144,7 @@ export default function StrategyComparison({ slotA, slotB, currentPrice, onClear
             <ReferenceLine y={0} stroke="#3a3a52" strokeWidth={1} />
             <ReferenceLine x={currentPrice} stroke="#5a5a72" strokeDasharray="6 4" />
             <Line type="monotone" dataKey="plA" name="Strategy A" stroke="#00d4aa" strokeWidth={2} dot={false} isAnimationActive={false} connectNulls />
-            <Line type="monotone" dataKey="plB" name="Strategy B" stroke="#3498db" strokeWidth={2} dot={false} isAnimationActive={false} connectNulls />
+            <Line type="monotone" dataKey="plB" name="Strategy B" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} connectNulls />
           </ComposedChart>
         </ResponsiveContainer>
       </div>

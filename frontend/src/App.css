@@ -1,44 +1,45 @@
-/* ===== Tab Bar ===== */
+/* ===== Tab Bar (centered segmented control) ===== */
 .tab-bar {
   display: flex;
-  background: var(--bg-secondary);
+  justify-content: center;
+  background: var(--bg-primary);
   border-bottom: 1px solid var(--border);
-  padding: 0 24px;
+  padding: 12px 24px;
   position: sticky;
   top: 0;
   z-index: 100;
 }
 
-.tab-bar button {
+.tab-bar-inner {
+  display: flex;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.tab-btn {
   background: none;
   border: none;
   color: var(--text-secondary);
   font-size: 13px;
   font-weight: 500;
-  padding: 14px 20px;
+  padding: 8px 24px;
   cursor: pointer;
-  border-bottom: 2px solid transparent;
-  transition: color 0.2s, border-color 0.2s;
+  border-radius: 8px;
+  transition: color 0.15s, background 0.15s;
   letter-spacing: 0.2px;
 }
 
-.tab-bar button:hover {
+.tab-btn:hover {
   color: var(--text-primary);
 }
 
-.tab-bar button.active {
-  color: var(--accent-cyan);
-  border-bottom-color: var(--accent-cyan);
-}
-
-.tab-bar .app-title {
-  font-size: 13px;
-  font-weight: 700;
-  color: var(--text-muted);
-  padding: 14px 0;
-  margin-right: auto;
-  letter-spacing: 1.5px;
-  text-transform: uppercase;
+.tab-btn.active {
+  color: var(--text-primary);
+  background: var(--bg-tertiary);
+  font-weight: 600;
 }
 
 /* ===== Dashboard ===== */
@@ -69,7 +70,7 @@
 }
 
 .hero-accent {
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  background: var(--gradient-brand);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -100,7 +101,6 @@
 
 .dash-card:hover {
   border-color: var(--border-light);
-  transform: translateY(-2px);
 }
 
 .dash-card-icon {
@@ -188,7 +188,7 @@
 }
 
 .search-landing-brand h1 .gradient-text {
-  background: linear-gradient(135deg, var(--accent-cyan) 0%, var(--accent-blue) 50%, #8b5cf6 100%);
+  background: var(--gradient-brand);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -487,7 +487,7 @@
 }
 
 .range-bar-fill.fill-blue {
-  background: linear-gradient(90deg, rgba(52, 152, 219, 0.3), var(--accent-blue));
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.3), var(--accent-blue));
 }
 
 .range-bar-marker {
@@ -563,7 +563,7 @@
 }
 
 .iv-h-fill.fill-blue {
-  background: linear-gradient(90deg, rgba(52, 152, 219, 0.25), var(--accent-blue));
+  background: linear-gradient(90deg, rgba(37, 99, 235, 0.25), var(--accent-blue));
 }
 
 .iv-h-ref-marker {
@@ -654,7 +654,7 @@
 }
 
 .iv-ratio-badge.ratio-low {
-  background: rgba(52, 152, 219, 0.12);
+  background: rgba(37, 99, 235, 0.12);
   color: var(--accent-blue);
 }
 
@@ -1118,8 +1118,8 @@
 }
 
 .leg-type-badge.type-stock {
-  background: rgba(52, 152, 219, 0.12);
-  color: #3498db;
+  background: rgba(37, 99, 235, 0.12);
+  color: var(--accent-blue);
 }
 
 .action-toggle {
@@ -1456,7 +1456,7 @@
   border: 1px solid var(--border-light);
   border-radius: 8px;
   padding: 10px 14px;
-  box-shadow: 0 4px 16px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   min-width: 160px;
 }
 
@@ -1542,7 +1542,7 @@
 .btn-slot:hover {
   color: var(--accent-blue);
   border-color: var(--accent-blue);
-  background: rgba(52, 152, 219, 0.06);
+  background: rgba(37, 99, 235, 0.06);
 }
 
 /* ===== Strategy Comparison ===== */
@@ -1660,7 +1660,21 @@
   margin-right: 6px;
 }
 
-/* ===== Portfolio Dashboard ===== */
+/* ===== Dashboard Tab ===== */
+.dashboard-tab {
+  max-width: 960px;
+  margin: 0 auto;
+  padding: 0 24px 64px;
+}
+
+/* ===== Portfolio Tab ===== */
+.portfolio-tab {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px 64px;
+}
+
+/* ===== Portfolio Dashboard (legacy compat) ===== */
 .portfolio-dashboard {
   max-width: 1200px;
   padding-bottom: 64px;
@@ -1670,7 +1684,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 32px 0 24px;
+  padding: 24px 0 16px;
 }
 
 .portfolio-title {
@@ -1690,8 +1704,8 @@
   background: var(--accent-cyan);
   color: var(--bg-primary);
   border: none;
-  border-radius: 8px;
-  padding: 10px 22px;
+  border-radius: 24px;
+  padding: 10px 24px;
   font-size: 13px;
   font-weight: 600;
   cursor: pointer;
@@ -1734,18 +1748,18 @@
 .metrics-bar {
   display: grid;
   grid-template-columns: repeat(6, 1fr);
-  gap: 12px;
-  margin-bottom: 12px;
+  gap: 8px;
+  margin-bottom: 8px;
 }
 
 .port-metric-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 16px 18px;
+  padding: 12px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .port-metric-label {
@@ -1791,7 +1805,7 @@
   font-size: 9px;
   font-weight: 600;
   color: var(--accent-blue);
-  background: rgba(52, 152, 219, 0.12);
+  background: rgba(37, 99, 235, 0.12);
   padding: 1px 5px;
   border-radius: 3px;
   margin-left: 4px;
@@ -1830,24 +1844,24 @@
 .greeks-bar {
   display: grid;
   grid-template-columns: repeat(5, 1fr);
-  gap: 12px;
-  margin-bottom: 16px;
+  gap: 8px;
+  margin-bottom: 12px;
 }
 
 .greek-card {
   background: var(--bg-secondary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 14px 18px;
+  padding: 10px 14px;
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: 3px;
 }
 
 .greek-label {
   font-size: 10px;
   font-weight: 500;
-  color: var(--accent-blue);
+  color: var(--accent-purple);
   text-transform: uppercase;
   letter-spacing: 0.5px;
 }
@@ -1866,7 +1880,7 @@
 }
 
 .greek-card-hoverable:hover {
-  border-color: var(--accent-blue);
+  border-color: var(--accent-purple);
 }
 
 .greek-actionable {
@@ -1891,7 +1905,7 @@
   color: var(--text-secondary);
   line-height: 1.5;
   width: 280px;
-  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
   z-index: 50;
   pointer-events: none;
 }
@@ -2035,13 +2049,13 @@
 }
 
 .holdings-table th {
-  background: var(--bg-tertiary);
-  color: var(--text-secondary);
+  background: transparent;
+  color: var(--text-muted);
   font-size: 10px;
   font-weight: 600;
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  padding: 10px 12px;
+  padding: 8px 12px;
   text-align: left;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
@@ -2064,7 +2078,7 @@
 }
 
 .holdings-table td {
-  padding: 10px 12px;
+  padding: 8px 12px;
   border-bottom: 1px solid var(--border);
   color: var(--text-primary);
   font-weight: 500;
@@ -2168,7 +2182,7 @@
   display: flex;
   gap: 8px;
   align-items: center;
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 .chart-tooltip-label {
@@ -2209,7 +2223,7 @@
   max-width: 95vw;
   max-height: 85vh;
   overflow-y: auto;
-  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.5);
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4);
 }
 
 .modal-header {
@@ -2478,8 +2492,8 @@
 }
 
 .alert-item.alert-info {
-  background: rgba(52, 152, 219, 0.08);
-  border: 1px solid rgba(52, 152, 219, 0.2);
+  background: rgba(37, 99, 235, 0.08);
+  border: 1px solid rgba(37, 99, 235, 0.2);
   color: var(--accent-blue);
 }
 
@@ -2518,8 +2532,8 @@
 
 .alerts-action-btn:hover,
 .alerts-action-btn.active {
-  background: rgba(52, 152, 219, 0.12);
-  border-color: rgba(52, 152, 219, 0.3);
+  background: rgba(37, 99, 235, 0.12);
+  border-color: rgba(37, 99, 235, 0.3);
   color: var(--accent-blue);
 }
 
@@ -2570,7 +2584,7 @@
 }
 
 .alert-restore-btn:hover {
-  background: rgba(52, 152, 219, 0.12);
+  background: rgba(37, 99, 235, 0.12);
   color: var(--accent-blue);
 }
 
@@ -3273,7 +3287,7 @@
 }
 
 .outlook-btn.active.outlook-neutral {
-  background: rgba(52, 152, 219, 0.12);
+  background: rgba(37, 99, 235, 0.12);
   border-color: var(--accent-blue);
   color: var(--accent-blue);
 }
@@ -3290,15 +3304,15 @@
 }
 
 .btn-recommend {
-  background: linear-gradient(135deg, var(--accent-cyan), var(--accent-blue));
+  background: var(--accent-cyan);
   color: var(--bg-primary);
   border: none;
-  border-radius: 8px;
+  border-radius: 24px;
   padding: 12px 40px;
   font-size: 14px;
   font-weight: 700;
   cursor: pointer;
-  transition: opacity 0.2s, transform 0.1s, box-shadow 0.2s;
+  transition: opacity 0.2s, transform 0.1s;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -3308,7 +3322,6 @@
 
 .btn-recommend:hover {
   opacity: 0.92;
-  box-shadow: 0 4px 16px rgba(0, 212, 170, 0.25);
 }
 .btn-recommend:active { transform: scale(0.98); }
 .btn-recommend:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
@@ -3355,8 +3368,8 @@
   color: var(--accent-red);
 }
 .rec-direction-badge.direction-neutral {
-  background: rgba(52, 152, 219, 0.1);
-  border: 1px solid rgba(52, 152, 219, 0.25);
+  background: rgba(37, 99, 235, 0.1);
+  border: 1px solid rgba(37, 99, 235, 0.25);
   color: #5dade2;
 }
 .rec-direction-move {
@@ -3639,7 +3652,7 @@
   font-weight: 600;
   font-variant-numeric: tabular-nums;
   color: var(--text-primary);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
 }
 
 /* ========= Risk Panel ========= */
@@ -3732,11 +3745,12 @@
   font-variant-numeric: tabular-nums;
 }
 
-.risk-flag {
+.risk-beta-list .risk-flag,
+.risk-corr-list .risk-flag {
   font-size: 9px;
   font-weight: 700;
   text-transform: uppercase;
-  color: #ff4757;
+  color: var(--accent-red);
   background: rgba(255, 71, 87, 0.15);
   border-radius: 3px;
   padding: 1px 4px;
@@ -3772,4 +3786,54 @@
 
 .text-yellow {
   color: #ffa502;
+}
+
+/* ===== Grouped Holdings Rows ===== */
+.group-parent-row {
+  cursor: pointer;
+}
+
+.group-parent-row td {
+  background: var(--bg-secondary);
+  font-weight: 600;
+}
+
+.group-parent-row:hover td {
+  background: var(--bg-hover);
+}
+
+.group-parent-row.group-expanded td {
+  border-bottom-color: transparent;
+}
+
+.group-ticker-cell {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.group-chevron {
+  font-size: 9px;
+  color: var(--text-muted);
+  flex-shrink: 0;
+  width: 12px;
+  transition: color 0.15s;
+}
+
+.group-parent-row:hover .group-chevron {
+  color: var(--accent-cyan);
+}
+
+.child-row td {
+  padding-left: 12px;
+  font-size: 12px;
+}
+
+.child-row td:first-child {
+  padding-left: 32px;
+}
+
+.child-ticker-cell {
+  color: var(--text-secondary) !important;
+  font-weight: 500 !important;
 }

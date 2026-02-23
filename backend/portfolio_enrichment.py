@@ -186,10 +186,16 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
     if total_abs_mv > 0:
         sector_breakdown = {k: round((v / total_abs_mv) * 100, 2) for k, v in sector_breakdown.items()}
 
-    # Concentration (top positions by weight)
+    # Concentration (aggregate by ticker, then top 10)
+    ticker_agg: dict[str, dict] = {}
+    for ep in enriched_positions:
+        t = ep["ticker"]
+        if t not in ticker_agg:
+            ticker_agg[t] = {"ticker": t, "weight": 0, "market_value": 0}
+        ticker_agg[t]["weight"] += ep.get("weight") or 0
+        ticker_agg[t]["market_value"] += ep.get("market_value") or 0
     concentration = sorted(
-        [{"ticker": ep["ticker"], "weight": ep.get("weight") or 0, "market_value": ep.get("market_value") or 0}
-         for ep in enriched_positions],
+        ticker_agg.values(),
         key=lambda x: abs(x["market_value"]),
         reverse=True,
     )[:10]
@@ -288,11 +294,14 @@ def _time_to_expiry(expiration: str) -> float:
 def _compute_risk_flags(positions: list[dict]) -> list[str]:
     flags = []
 
-    # Position concentration > 25%
+    # Ticker-level concentration > 25% (aggregate all positions for same ticker)
+    ticker_weights: dict[str, float] = {}
     for ep in positions:
-        w = ep.get("weight") or 0
+        t = ep["ticker"]
+        ticker_weights[t] = ticker_weights.get(t, 0) + (ep.get("weight") or 0)
+    for t, w in ticker_weights.items():
         if w > 25:
-            flags.append(f"{ep['ticker']} is {w:.0f}% of portfolio (>25%)")
+            flags.append(f"{t} is {w:.0f}% of portfolio (>25%)")
 
     # Sector concentration > 40%
     sector_weights: dict[str, float] = {}
