@@ -17,9 +17,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from newsletter.parser import parse_email
 from newsletter.crypto import EmailCrypto
 from newsletter.relevance import extract_relevance
-from newsletter.openai_headline import generate_headline, _strip_digits
+from newsletter.openai_headline import generate_headline, generate_summary, _strip_digits
 from newsletter.store import NewsletterStore
-from newsletter.service import NewsletterService
+from newsletter.service import NewsletterService, _derive_source_name
 from newsletter.config import NewsletterConfig
 
 FIXTURES = Path(__file__).parent / "fixtures"
@@ -201,6 +201,74 @@ class TestOpenAIHeadline:
         assert _strip_digits("42 percent gain") == "percent gain"
 
 
+# ---- Summary generation tests ----
+
+class TestSummaryGeneration:
+    def test_summary_returns_empty_without_api_key(self):
+        result = generate_summary("Some newsletter text", ["NVDA"], ["tech"], api_key="")
+        assert result == []
+
+    def test_summary_returns_empty_without_text(self):
+        result = generate_summary("", ["NVDA"], ["tech"], api_key="sk-test")
+        assert result == []
+
+    @patch("newsletter.openai_headline.OpenAI", create=True)
+    def test_summary_parses_response_lines(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.output_text = (
+            "AI infrastructure spending is accelerating across cloud providers.\n"
+            "SNAP's ad platform improvements could benefit from enterprise AI adoption.\n"
+            "Enterprise software demand remains resilient despite macro headwinds."
+        )
+        mock_client.responses.create.return_value = mock_response
+
+        result = generate_summary(
+            "Long newsletter text here...",
+            ["SNAP", "NOW"],
+            ["technology", "social media", "enterprise software"],
+            api_key="sk-test",
+        )
+        assert len(result) == 3
+        assert "AI infrastructure" in result[0]
+
+    @patch("newsletter.openai_headline.OpenAI", create=True)
+    def test_summary_caps_at_five_lines(self, mock_openai_cls):
+        mock_client = MagicMock()
+        mock_openai_cls.return_value = mock_client
+        mock_response = MagicMock()
+        mock_response.output_text = "\n".join(f"Line {i}" for i in range(10))
+        mock_client.responses.create.return_value = mock_response
+
+        result = generate_summary("text", ["NVDA"], ["tech"], api_key="sk-test")
+        assert len(result) <= 5
+
+
+# ---- Source name derivation tests ----
+
+class TestSourceNameDerivation:
+    def test_known_author_from_email(self):
+        assert _derive_source_name("tmtbreakout@substack.com", "") == "TMTBreakout"
+
+    def test_known_author_from_body_url(self):
+        body = "View online at https://sleepysol.substack.com/p/issue-55"
+        assert _derive_source_name("myemail@gmail.com", body) == "SleepySol"
+
+    def test_substack_domain_unknown_author(self):
+        name = _derive_source_name("newauthor@substack.com", "")
+        assert name == "Newauthor"
+
+    def test_body_substack_url_unknown_author(self):
+        body = "Check out https://fintechdigest.substack.com/p/weekly"
+        name = _derive_source_name("forwarded@gmail.com", body)
+        assert name == "Fintechdigest"
+
+    def test_fallback_to_email_local(self):
+        name = _derive_source_name("john.doe@example.com", "no substack here")
+        assert name == "John Doe"
+
+
 # ---- Store tests ----
 
 class TestStore:
@@ -232,6 +300,7 @@ class TestStore:
             "context_bullets": ["Bullet 1", "Bullet 2"],
             "portfolio_bullets": ["NVDA is up"],
             "watchlist_bullets": [],
+            "summary_lines": ["AI spending accelerates", "Enterprise software stays resilient"],
         }
         store.insert_issue(issue)
 
@@ -241,6 +310,7 @@ class TestStore:
         assert latest["headline"] == "Test Headline"
         assert latest["context_bullets"] == ["Bullet 1", "Bullet 2"]
         assert latest["portfolio_bullets"] == ["NVDA is up"]
+        assert latest["summary_lines"] == ["AI spending accelerates", "Enterprise software stays resilient"]
 
     def test_duplicate_message_id_rejected(self, tmp_path):
         store = self._make_store(tmp_path)
@@ -259,6 +329,7 @@ class TestStore:
             "context_bullets": [],
             "portfolio_bullets": [],
             "watchlist_bullets": [],
+            "summary_lines": [],
         }
         store.insert_issue(issue)
         assert store.message_id_exists("unique-msg")
@@ -281,6 +352,7 @@ class TestStore:
             "context_bullets": [],
             "portfolio_bullets": [],
             "watchlist_bullets": [],
+            "summary_lines": [],
         }
         store.insert_issue(issue)
         assert not store.get_latest()["read"]
@@ -305,6 +377,7 @@ class TestStore:
                 "context_bullets": [],
                 "portfolio_bullets": [],
                 "watchlist_bullets": [],
+                "summary_lines": [],
             })
         history = store.get_history(limit=3)
         assert len(history) == 3
@@ -328,6 +401,7 @@ class TestStore:
             "context_bullets": [],
             "portfolio_bullets": [],
             "watchlist_bullets": [],
+            "summary_lines": [],
         }
         store.insert_issue(issue)
         summary = store.get_latest()
@@ -351,11 +425,36 @@ class TestStore:
             "context_bullets": [],
             "portfolio_bullets": [],
             "watchlist_bullets": [],
+            "summary_lines": [],
         }
         store.insert_issue(issue)
         full = store.get_issue("full-test", include_encrypted=True)
         assert full["raw_mime_enc"] == b"secret-mime"
         assert full["raw_text_enc"] == b"secret-text"
+
+    def test_summary_lines_stored_and_retrieved(self, tmp_path):
+        store = self._make_store(tmp_path)
+        lines = ["Line 1", "Line 2", "Line 3"]
+        issue = {
+            "id": "summary-test",
+            "source_name": "Test",
+            "from_email": "test@test.com",
+            "subject": "Test",
+            "received_at": "2026-01-01",
+            "message_id": "summary-msg",
+            "web_url": None,
+            "raw_mime_enc": None,
+            "raw_text_enc": None,
+            "raw_html_enc": None,
+            "headline": "Summary Test",
+            "context_bullets": [],
+            "portfolio_bullets": [],
+            "watchlist_bullets": [],
+            "summary_lines": lines,
+        }
+        store.insert_issue(issue)
+        latest = store.get_latest()
+        assert latest["summary_lines"] == lines
 
 
 # ---- Integration test ----
@@ -395,6 +494,8 @@ class TestIntegration:
         assert latest["id"] == result["id"]
         assert len(latest["context_bullets"]) >= 2
         assert any("NVDA" in b for b in latest["portfolio_bullets"])
+        # summary_lines field exists (may be empty without API key)
+        assert "summary_lines" in latest
 
         # Verify encrypted storage (raw blobs exist in DB)
         full = service.get_issue_full(result["id"])
@@ -404,6 +505,16 @@ class TestIntegration:
         # No encrypted blobs in the response
         assert "raw_mime_enc" not in full
         assert "raw_text_enc" not in full
+
+    def test_source_name_from_substack_email(self, tmp_path):
+        """When email is directly from Substack, source_name should be the author."""
+        config = self._make_config(tmp_path)
+        service = NewsletterService(config)
+
+        raw = (FIXTURES / "sample_newsletter.eml").read_bytes()
+        result = service.process_raw_email(raw, [], [])
+        assert result is not None
+        assert result["source_name"] == "TMTBreakout"
 
     def test_duplicate_rejected(self, tmp_path):
         config = self._make_config(tmp_path)

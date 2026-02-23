@@ -31,10 +31,11 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
   const [showSettings, setShowSettings] = useState(false);
   const [news, setNews] = useState([]);
   const [newsLoading, setNewsLoading] = useState(false);
-  const [showNews, setShowNews] = useState(false);
   const [newsletter, setNewsletter] = useState(null);
   const [nlHistory, setNlHistory] = useState([]);
   const [showNlHistory, setShowNlHistory] = useState(false);
+  const [showAllAlerts, setShowAllAlerts] = useState(false);
+  const [showAllNews, setShowAllNews] = useState(false);
 
   function fetchAlerts() {
     getDashboardAlerts()
@@ -52,7 +53,19 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { fetchAlerts(); }, []);
+  // Fetch news on mount (show by default now)
+  function fetchNews() {
+    setNewsLoading(true);
+    getDashboardNews()
+      .then((data) => setNews(data.articles || []))
+      .catch(() => {})
+      .finally(() => setNewsLoading(false));
+  }
+
+  useEffect(() => {
+    fetchAlerts();
+    fetchNews();
+  }, []);
 
   function handleDismiss(e, alertId) {
     e.stopPropagation();
@@ -87,44 +100,35 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
     markNewsletterRead(issueId).catch(() => {});
   }
 
-  function handleToggleNews() {
-    if (!showNews && news.length === 0) {
-      setNewsLoading(true);
-      getDashboardNews()
-        .then((data) => setNews(data.articles || []))
-        .catch(() => {})
-        .finally(() => setNewsLoading(false));
-    }
-    setShowNews(!showNews);
-  }
-
   const activeAlerts = alerts.filter(a => !a.dismissed);
   const dismissedAlerts = alerts.filter(a => a.dismissed);
+
+  // Categorize alerts for sections
+  const bigMoves = activeAlerts.filter(a => a.type === 'large_move');
+  const ivAlerts = activeAlerts.filter(a => a.type === 'iv_high' || a.type === 'iv_low');
+  const otherAlerts = activeAlerts.filter(a => a.type !== 'large_move' && a.type !== 'iv_high' && a.type !== 'iv_low');
+
+  // Top 3 priority alerts shown by default
+  const topAlerts = activeAlerts.slice(0, 3);
+  const hasMoreAlerts = activeAlerts.length > 3;
 
   if (loading) {
     return (
       <div className="alerts-panel">
         <div className="alerts-header">
-          <h3>Alerts & News</h3>
+          <h3>News & Alerts</h3>
         </div>
-        <div className="loading"><span className="spinner" /> Scanning...</div>
+        <div className="loading"><span className="spinner" /> Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="alerts-panel">
+    <div className="alerts-panel alerts-panel-expanded">
       <div className="alerts-header">
-        <h3>Alerts & News</h3>
+        <h3>News & Alerts</h3>
         {activeCount > 0 && <span className="alerts-count">{activeCount}</span>}
         <div className="alerts-actions">
-          <button
-            className={`alerts-action-btn ${showNews ? 'active' : ''}`}
-            onClick={handleToggleNews}
-            title="News feed"
-          >
-            News
-          </button>
           <button
             className={`alerts-action-btn ${showSettings ? 'active' : ''}`}
             onClick={() => setShowSettings(!showSettings)}
@@ -153,16 +157,60 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
         />
       )}
 
-      {/* News panel */}
-      {showNews && (
-        <div className="news-panel">
-          {newsLoading ? (
-            <div className="loading"><span className="spinner" /> Loading news...</div>
-          ) : news.length === 0 ? (
-            <div className="alerts-empty">No news available. Add tickers to your portfolio or watchlist.</div>
-          ) : (
+      {/* === Top Alerts (top 3 from past 24h) === */}
+      {topAlerts.length > 0 && (
+        <div className="news-section-block">
+          <div className="news-section-label">Top Alerts</div>
+          <div className="alerts-list">
+            {(showAllAlerts ? activeAlerts : topAlerts).map(alert => (
+              <div
+                key={alert.id}
+                className={`alert-item alert-${alert.severity}`}
+                onClick={() => onNavigateToAnalysis(alert.ticker)}
+              >
+                <span className="alert-icon">{SEVERITY_ICONS[alert.severity]}</span>
+                <span className="alert-type-tag">{TYPE_LABELS[alert.type] || alert.type}</span>
+                <span className="alert-message">{alert.message}</span>
+                <button
+                  className="alert-dismiss-btn"
+                  onClick={(e) => handleDismiss(e, alert.id)}
+                  title="Dismiss"
+                >
+                  &times;
+                </button>
+                <span className="alert-arrow">&rarr;</span>
+              </div>
+            ))}
+          </div>
+          {hasMoreAlerts && (
+            <button
+              className="section-show-more"
+              onClick={() => setShowAllAlerts(!showAllAlerts)}
+            >
+              {showAllAlerts ? 'Show less' : `Show all ${activeAlerts.length} alerts`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {activeAlerts.length === 0 && (
+        <div className="news-section-block">
+          <div className="news-section-label">Alerts</div>
+          <div className="alerts-empty">No active alerts.</div>
+        </div>
+      )}
+
+      {/* === News Feed (visible by default) === */}
+      <div className="news-section-block">
+        <div className="news-section-label">Latest News</div>
+        {newsLoading ? (
+          <div className="loading"><span className="spinner" /> Loading news...</div>
+        ) : news.length === 0 ? (
+          <div className="alerts-empty">No news available.</div>
+        ) : (
+          <>
             <div className="news-list">
-              {news.map((article, i) => (
+              {(showAllNews ? news : news.slice(0, 5)).map((article, i) => (
                 <a
                   key={i}
                   className="news-item"
@@ -179,17 +227,28 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
                 </a>
               ))}
             </div>
-          )}
-        </div>
-      )}
+            {news.length > 5 && (
+              <button
+                className="section-show-more"
+                onClick={() => setShowAllNews(!showAllNews)}
+              >
+                {showAllNews ? 'Show less' : `Show all ${news.length} articles`}
+              </button>
+            )}
+          </>
+        )}
+      </div>
 
-      {/* Newsletter highlights — top of alerts */}
+      {/* === Newsletter Highlights === */}
       {newsletter && (
-        <NewsletterHighlightsCard
-          newsletter={newsletter}
-          onViewIssue={(id) => handleMarkRead(id)}
-          onViewHistory={handleViewNlHistory}
-        />
+        <div className="news-section-block">
+          <div className="news-section-label">Newsletter</div>
+          <NewsletterHighlightsCard
+            newsletter={newsletter}
+            onViewIssue={(id) => handleMarkRead(id)}
+            onViewHistory={handleViewNlHistory}
+          />
+        </div>
       )}
 
       {/* Newsletter history modal */}
@@ -215,46 +274,44 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
         </div>
       )}
 
-      {/* Active alerts grouped by ticker */}
-      {activeAlerts.length === 0 && !showDismissed && (
-        <div className="alerts-empty">No active alerts.</div>
+      {/* === Big Moves in Portfolio === */}
+      {bigMoves.length > 0 && (
+        <div className="news-section-block">
+          <div className="news-section-label">Big Moves</div>
+          <div className="alerts-list">
+            {bigMoves.map(alert => (
+              <div
+                key={alert.id}
+                className={`alert-item alert-${alert.severity}`}
+                onClick={() => onNavigateToAnalysis(alert.ticker)}
+              >
+                <span className="alert-icon">{SEVERITY_ICONS[alert.severity]}</span>
+                <span className="alert-message">{alert.message}</span>
+                <span className="alert-arrow">&rarr;</span>
+              </div>
+            ))}
+          </div>
+        </div>
       )}
 
-      {activeAlerts.length > 0 && (
-        <div className="alerts-list">
-          {groups.map(group => {
-            const active = group.alerts.filter(a => !a.dismissed);
-            if (active.length === 0) return null;
-            return (
-              <div key={group.ticker} className="alert-group">
-                {groups.length > 1 && (
-                  <div className="alert-group-header">
-                    <span className="alert-group-ticker">{group.ticker}</span>
-                    <span className="alert-group-count">{active.length}</span>
-                  </div>
-                )}
-                {active.map(alert => (
-                  <div
-                    key={alert.id}
-                    className={`alert-item alert-${alert.severity}`}
-                    onClick={() => onNavigateToAnalysis(alert.ticker)}
-                  >
-                    <span className="alert-icon">{SEVERITY_ICONS[alert.severity]}</span>
-                    <span className="alert-type-tag">{TYPE_LABELS[alert.type] || alert.type}</span>
-                    <span className="alert-message">{alert.message}</span>
-                    <button
-                      className="alert-dismiss-btn"
-                      onClick={(e) => handleDismiss(e, alert.id)}
-                      title="Dismiss"
-                    >
-                      &times;
-                    </button>
-                    <span className="alert-arrow">&rarr;</span>
-                  </div>
-                ))}
+      {/* === IV Ranks === */}
+      {ivAlerts.length > 0 && (
+        <div className="news-section-block">
+          <div className="news-section-label">IV Ranks</div>
+          <div className="alerts-list">
+            {ivAlerts.map(alert => (
+              <div
+                key={alert.id}
+                className={`alert-item alert-${alert.severity}`}
+                onClick={() => onNavigateToAnalysis(alert.ticker)}
+              >
+                <span className="alert-icon">{SEVERITY_ICONS[alert.severity]}</span>
+                <span className="alert-type-tag">{TYPE_LABELS[alert.type]}</span>
+                <span className="alert-message">{alert.message}</span>
+                <span className="alert-arrow">&rarr;</span>
               </div>
-            );
-          })}
+            ))}
+          </div>
         </div>
       )}
 

@@ -2768,9 +2768,11 @@
   letter-spacing: 0.5px;
 }
 
-.newsletter-time {
+.newsletter-date {
   font-size: 11px;
+  font-weight: 600;
   color: var(--text-muted);
+  white-space: nowrap;
 }
 
 .newsletter-headline {
@@ -2934,6 +2936,68 @@
   font-size: 10px;
   color: var(--text-muted);
   flex-shrink: 0;
+}
+
+/* ===== News Section Blocks (default visible layout) ===== */
+.alerts-panel-expanded {
+  max-height: none;
+}
+
+.news-section-block {
+  margin-bottom: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.news-section-block:last-of-type {
+  border-bottom: none;
+  margin-bottom: 0;
+  padding-bottom: 0;
+}
+
+.news-section-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  margin-bottom: 8px;
+}
+
+.section-show-more {
+  background: none;
+  border: none;
+  color: var(--accent-blue);
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 6px 0 0;
+  transition: color 0.15s;
+}
+
+.section-show-more:hover {
+  color: var(--accent-cyan);
+}
+
+/* Newsletter summary lines */
+.newsletter-summary {
+  margin-bottom: 10px;
+}
+
+.newsletter-summary-line {
+  font-size: 12.5px;
+  color: var(--text-secondary);
+  line-height: 1.5;
+  margin: 0 0 4px;
+  padding-left: 12px;
+  position: relative;
+}
+
+.newsletter-summary-line::before {
+  content: "\2022";
+  position: absolute;
+  left: 0;
+  color: var(--accent-cyan);
 }
 
 /* ===== Watchlist Section ===== */
