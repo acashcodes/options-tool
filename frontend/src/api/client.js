@@ -191,6 +191,10 @@ export function syncNewsletter() {
   return requestPost('/newsletter/sync_now', {});
 }
 
+export function deleteNewsletterIssue(issueId) {
+  return requestDelete(`/newsletter/issues/${encodeURIComponent(issueId)}`);
+}
+
 // ===== Valuations =====
 
 export function getValuationsSummary(source = 'all') {

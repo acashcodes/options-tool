@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-export default function NewsletterHighlightsCard({ newsletter, onViewIssue, onViewHistory }) {
+export default function NewsletterHighlightsCard({ newsletter, onViewIssue, onViewHistory, onDelete }) {
   const [detailsExpanded, setDetailsExpanded] = useState(false);
 
   if (!newsletter) return null;
@@ -23,14 +23,39 @@ export default function NewsletterHighlightsCard({ newsletter, onViewIssue, onVi
   const hasWatchlist = watchlist_bullets.length > 0;
   const hasDetails = hasPortfolio || hasWatchlist;
 
+  function handleHeadlineClick() {
+    if (web_url) {
+      window.open(web_url, '_blank', 'noopener,noreferrer');
+    } else if (id && onViewIssue) {
+      onViewIssue(id);
+    }
+  }
+
   return (
     <div className={`newsletter-card ${read ? '' : 'newsletter-unread'}`}>
       <div className="newsletter-card-header">
         <span className="newsletter-source">{source_name || 'Newsletter'}</span>
-        <span className="newsletter-date">{formatDate(received_at)}</span>
+        <div className="newsletter-header-right">
+          <span className="newsletter-date">{formatDate(received_at)}</span>
+          {onDelete && (
+            <button
+              className="newsletter-delete-btn"
+              onClick={(e) => { e.stopPropagation(); onDelete(id); }}
+              title="Delete this summary"
+            >
+              &times;
+            </button>
+          )}
+        </div>
       </div>
 
-      <div className="newsletter-headline">{headline}</div>
+      <div
+        className={`newsletter-headline ${web_url ? 'newsletter-headline-link' : ''}`}
+        onClick={handleHeadlineClick}
+        title={web_url ? 'Open full issue' : ''}
+      >
+        {headline}
+      </div>
 
       {/* Condensed summary lines (3-5 industry-relevant takeaways) */}
       {hasSummary && (
@@ -99,9 +124,11 @@ export default function NewsletterHighlightsCard({ newsletter, onViewIssue, onVi
             Open Full Issue
           </button>
         )}
-        <button className="newsletter-action-btn" onClick={() => onViewHistory && onViewHistory()}>
-          History
-        </button>
+        {onViewHistory && (
+          <button className="newsletter-action-btn" onClick={() => onViewHistory()}>
+            History
+          </button>
+        )}
       </div>
     </div>
   );

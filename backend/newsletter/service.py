@@ -41,17 +41,9 @@ class NewsletterService:
     ) -> Optional[dict]:
         """Process a raw MIME email: parse, extract, headline, summarize, encrypt, store.
 
-        Returns the stored issue dict or None if skipped (duplicate / not in allowlist).
+        Returns the stored issue dict or None if skipped (duplicate).
         """
         parsed = parse_email(raw_bytes)
-
-        # Check allowlist
-        if self.config.from_allowlist:
-            if parsed.from_email.lower() not in [
-                e.lower() for e in self.config.from_allowlist
-            ]:
-                logger.info("Skipping email from %s (not in allowlist)", parsed.from_email)
-                return None
 
         # Skip duplicates
         if parsed.message_id and self.store.message_id_exists(parsed.message_id):
@@ -156,6 +148,9 @@ class NewsletterService:
 
     def mark_read(self, issue_id: str) -> bool:
         return self.store.mark_read(issue_id)
+
+    def delete_issue(self, issue_id: str) -> bool:
+        return self.store.delete_issue(issue_id)
 
 
 def _derive_source_name(from_email: str, body: str = "") -> str:

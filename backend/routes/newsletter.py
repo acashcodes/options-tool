@@ -53,6 +53,14 @@ def create_newsletter_routes(service: Optional[NewsletterService] = None) -> API
             raise HTTPException(status_code=404, detail="Issue not found")
         return {"success": True}
 
+    @router.delete("/issues/{issue_id}")
+    def delete_issue(issue_id: str):
+        svc = _svc()
+        success = svc.delete_issue(issue_id)
+        if not success:
+            raise HTTPException(status_code=404, detail="Issue not found")
+        return {"success": True}
+
     @router.post("/sync_now")
     def sync_now():
         """Trigger an immediate IMAP fetch."""

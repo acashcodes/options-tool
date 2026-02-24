@@ -2,9 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   getDashboardAlerts, dismissAlert, restoreAlert,
   clearDismissedAlerts, updateAlertThresholds, getDashboardNews,
-  getNewsletterHistory, markNewsletterRead,
 } from '../api/client';
-import NewsletterHighlightsCard from './NewsletterHighlightsCard';
 
 const SEVERITY_ICONS = {
   danger: '\u26A0',
@@ -31,9 +29,6 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
   const [showSettings, setShowSettings] = useState(false);
   const [news, setNews] = useState([]);
   const [newsLoading, setNewsLoading] = useState(false);
-  const [newsletter, setNewsletter] = useState(null);
-  const [nlHistory, setNlHistory] = useState([]);
-  const [showNlHistory, setShowNlHistory] = useState(false);
   const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [showAllNews, setShowAllNews] = useState(false);
 
@@ -45,9 +40,6 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
         setActiveCount(data.active_count || 0);
         setDismissedCount(data.dismissed_count || 0);
         setThresholds(data.thresholds || null);
-        if (data.newsletter) {
-          setNewsletter(data.newsletter);
-        }
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -87,17 +79,6 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
       setShowSettings(false);
       fetchAlerts();
     });
-  }
-
-  function handleViewNlHistory() {
-    setShowNlHistory(true);
-    getNewsletterHistory(20)
-      .then((data) => setNlHistory(data.issues || []))
-      .catch(() => {});
-  }
-
-  function handleMarkRead(issueId) {
-    markNewsletterRead(issueId).catch(() => {});
   }
 
   const activeAlerts = alerts.filter(a => !a.dismissed);
@@ -239,41 +220,6 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
           </>
         )}
       </div>
-
-      {/* === Newsletter Highlights === */}
-      {newsletter && (
-        <div className="news-section-block">
-          <div className="news-section-label">Newsletter</div>
-          <NewsletterHighlightsCard
-            newsletter={newsletter}
-            onViewIssue={(id) => handleMarkRead(id)}
-            onViewHistory={handleViewNlHistory}
-          />
-        </div>
-      )}
-
-      {/* Newsletter history modal */}
-      {showNlHistory && (
-        <div className="nl-history-panel">
-          <div className="nl-history-header">
-            <span>Newsletter History</span>
-            <button className="alerts-action-btn" onClick={() => setShowNlHistory(false)}>Close</button>
-          </div>
-          {nlHistory.length === 0 ? (
-            <div className="alerts-empty">No newsletter history.</div>
-          ) : (
-            <div className="nl-history-list">
-              {nlHistory.map((issue) => (
-                <div key={issue.id} className={`nl-history-item ${issue.read ? '' : 'nl-unread'}`}>
-                  <span className="nl-history-source">{issue.source_name}</span>
-                  <span className="nl-history-headline">{issue.headline || issue.subject}</span>
-                  <span className="nl-history-time">{formatTimeAgo(issue.received_at)}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      )}
 
       {/* === Big Moves in Portfolio === */}
       {bigMoves.length > 0 && (

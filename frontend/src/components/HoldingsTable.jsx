@@ -167,7 +167,7 @@ export default function HoldingsTable({ positions, onNavigateToAnalysis, onRefre
       case 'pnl':
         return `${val >= 0 ? '+' : ''}$${Number(val).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
       case 'pnl_percent':
-        return `${val >= 0 ? '+' : ''}${Number(val).toFixed(2)}%`;
+        return `${val >= 0 ? '+' : ''}${Number(val).toFixed(1)}%`;
       case 'delta_per_unit':
         return Number(val).toFixed(2);
       case 'theta':

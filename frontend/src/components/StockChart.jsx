@@ -65,7 +65,7 @@ function ChartTooltip({ active, payload, periodLabel }) {
         <div className="payoff-tooltip-row">
           <span className="payoff-tooltip-label">Change</span>
           <span className={`payoff-tooltip-value ${d.change >= 0 ? 'text-green' : 'text-red'}`}>
-            {d.change >= 0 ? '+' : ''}{d.change.toFixed(2)} ({d.changePct >= 0 ? '+' : ''}{d.changePct.toFixed(2)}%)
+            {d.change >= 0 ? '+' : ''}${d.change.toFixed(2)} ({d.changePct >= 0 ? '+' : ''}{d.changePct.toFixed(1)}%)
           </span>
         </div>
       )}

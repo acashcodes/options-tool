@@ -119,6 +119,11 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
     ? m.gross_exposure / parsedMargin
     : m?.leverage_ratio;
 
+  // Portfolio value = gross total of positions - margin used
+  const portfolioValue = parsedMargin && parsedMargin > 0 && m?.total_market_value != null
+    ? m.total_market_value - parsedMargin
+    : m?.total_market_value;
+
   return (
     <div className="portfolio-tab">
       {/* Header */}
@@ -164,7 +169,12 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
           {/* Row 1: Hero Portfolio Value */}
           <div className="port-hero">
             <span className="port-hero-label">Portfolio Value</span>
-            <span className="port-hero-value">{fmtDollar(m.total_market_value)}</span>
+            <span className="port-hero-value">{fmtDollar(portfolioValue)}</span>
+            {parsedMargin && parsedMargin > 0 && (
+              <span className="port-hero-sub">
+                {fmtDollar(m.total_market_value)} gross &minus; {fmtDollar(parsedMargin)} margin
+              </span>
+            )}
           </div>
 
           {/* Row 2: Key Stats */}

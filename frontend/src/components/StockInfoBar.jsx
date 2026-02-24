@@ -69,7 +69,7 @@ export default function StockInfoBar({ quote }) {
           <span className="price">${fmt(quote.price)}</span>
           {quote.change != null && (
             <span className={`change ${changeClass}`}>
-              {changeSign}{fmt(quote.change)} ({changeSign}{quote.change_percent}%)
+              {changeSign}${fmt(quote.change)} ({changeSign}{Number(quote.change_percent).toFixed(1)}%)
             </span>
           )}
         </div>

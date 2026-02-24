@@ -167,6 +167,14 @@ class NewsletterStore:
             )
             return cur.rowcount > 0
 
+    def delete_issue(self, issue_id: str) -> bool:
+        with self._db() as conn:
+            cur = conn.execute(
+                "DELETE FROM newsletter_issues WHERE id = ?",
+                (issue_id,),
+            )
+            return cur.rowcount > 0
+
     def _row_to_summary(self, row: sqlite3.Row) -> dict[str, Any]:
         # summary_lines_json may not exist in older DB rows
         summary_raw = None
