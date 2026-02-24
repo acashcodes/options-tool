@@ -124,6 +124,10 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
     ? m.total_market_value - parsedMargin
     : m?.total_market_value;
 
+  // Convenience aliases for metrics row calculations
+  const total_mv = m?.total_market_value || 0;
+  const greeks = m?.greeks || {};
+
   return (
     <div className="portfolio-tab">
       {/* Header */}
@@ -177,7 +181,8 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
             )}
           </div>
 
-          {/* Row 2: Key Stats */}
+          {/* Row 1: Capital & Core Risk */}
+          <div className="metrics-row-label">Capital &amp; Core Risk</div>
           <div className="metrics-bar">
             <MarginCard
               parsedMargin={parsedMargin}
@@ -189,13 +194,140 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
               onCancel={() => { setEditingMargin(false); setMarginAmount(localStorage.getItem('portfolio_margin') || ''); }}
             />
             <MetricCard
-              label="Leverage"
-              value={leverageVal != null ? `${leverageVal.toFixed(2)}x` : '\u2014'}
-              color={leverageVal != null && leverageVal > 1.5 ? 'red' : null}
+              label="Margin Used (% Equity)"
+              value={parsedMargin && total_mv ? `${((parsedMargin / total_mv) * 100).toFixed(1)}%` : '\u2014'}
+              subtitle="Margin as % of portfolio value"
             />
             <MetricCard
-              label="Gross Exposure"
-              value={fmtDollar(m.gross_exposure)}
+              label="Eff. Leverage"
+              value={leverageVal != null ? `${leverageVal.toFixed(2)}x` : '\u2014'}
+              color={leverageVal != null && leverageVal > 1.5 ? 'red' : null}
+              subtitle="Gross exposure / net exposure"
+            />
+            <MetricCard
+              label="Beta-Adj Delta"
+              value={greeks.beta_weighted_delta != null
+                ? `$${Number(greeks.beta_weighted_delta).toLocaleString('en-US', { maximumFractionDigits: 0 })}`
+                : '\u2014'}
+              color={greeks.beta_weighted_delta > 0 ? 'cyan' : greeks.beta_weighted_delta < 0 ? 'red' : null}
+              subtitle="SPY-equivalent share exposure"
+            />
+            <MetricCard
+              label="Weekly Theta (%)"
+              value={total_mv > 0
+                ? `${(greeks.theta * 7 / Math.abs(total_mv) * 100).toFixed(2)}%`
+                : '\u2014'}
+              color={greeks.theta < 0 ? 'red' : 'cyan'}
+              subtitle="7-day time decay as % of portfolio"
+            />
+            <MetricCard
+              label="Vega (% P&L)"
+              value={total_mv > 0
+                ? `${(greeks.vega / Math.abs(total_mv) * 100).toFixed(2)}%`
+                : '\u2014'}
+              color={greeks.vega > 0 ? 'cyan' : greeks.vega < 0 ? 'red' : null}
+              subtitle="P&L impact per 1% IV change"
+            />
+            <MetricCard
+              label="Top Position"
+              value={m.concentration && m.concentration[0]
+                ? `${m.concentration[0].ticker || m.concentration[0].symbol || '?'} ${(m.concentration[0].weight || 0).toFixed(0)}%`
+                : '\u2014'}
+              subtitle="Largest single holding"
+            />
+            <MetricCard
+              label="Top Sector"
+              value={(() => {
+                if (!m.sector_breakdown) return '\u2014';
+                const entries = Object.entries(m.sector_breakdown);
+                if (entries.length === 0) return '\u2014';
+                const [topSector] = entries.reduce((a, b) => b[1] > a[1] ? b : a);
+                return topSector;
+              })()}
+              subtitle="Most concentrated sector"
+            />
+          </div>
+
+          {/* Row 2: Time & Expiry Risk */}
+          <div className="metrics-row-label">Time &amp; Expiry Risk</div>
+          <div className="metrics-bar">
+            <MetricCard
+              label="Wtd Avg DTE"
+              value={m.weighted_avg_dte != null ? `${Math.round(m.weighted_avg_dte)} days` : '\u2014'}
+              subtitle="Average days to expiration"
+            />
+            <MetricCard
+              label="Expiring <30d"
+              value={m.pct_expiring_30d != null ? `${m.pct_expiring_30d.toFixed(0)}%` : '\u2014'}
+              subtitle="% portfolio expiring within 30 days"
+            />
+            <MetricCard
+              label="Expiring <14d"
+              value={m.pct_expiring_14d != null ? `${m.pct_expiring_14d.toFixed(0)}%` : '\u2014'}
+              color={m.pct_expiring_14d != null && m.pct_expiring_14d > 20 ? 'red' : null}
+              subtitle="% portfolio expiring within 14 days"
+            />
+            <MetricCard
+              label="5-Day Decay"
+              value={m.five_day_theta_dollars != null ? fmtDollar(m.five_day_theta_dollars) : '\u2014'}
+              sub={m.five_day_theta_pct != null ? `${m.five_day_theta_pct.toFixed(2)}%` : null}
+              subtitle="Expected time decay over 5 days"
+            />
+            <MetricCard
+              label="Gamma / 1% Move"
+              value={m.gamma_per_1pct != null ? fmtDollar(m.gamma_per_1pct) : '\u2014'}
+              subtitle="Delta change per 1% underlying move"
+            />
+          </div>
+
+          {/* Row 3: Scenario & Stress */}
+          <div className="metrics-row-label">Scenario &amp; Stress</div>
+          <div className="metrics-bar">
+            <MetricCard
+              label="P&L if -2%"
+              value={(() => {
+                if (m.stress_tests?.pnl_down_2pct != null) return fmtPnl(m.stress_tests.pnl_down_2pct);
+                const d = greeks.delta || 0, g = greeks.gamma || 0;
+                const est = d * -0.02 + 0.5 * g * 0.02 * 0.02;
+                return fmtPnl(est);
+              })()}
+              color={(() => {
+                const v = m.stress_tests?.pnl_down_2pct ?? ((greeks.delta || 0) * -0.02 + 0.5 * (greeks.gamma || 0) * 0.02 * 0.02);
+                return v >= 0 ? 'cyan' : 'red';
+              })()}
+              subtitle="Estimated loss if market drops 2%"
+            />
+            <MetricCard
+              label="P&L if +2%"
+              value={(() => {
+                if (m.stress_tests?.pnl_up_2pct != null) return fmtPnl(m.stress_tests.pnl_up_2pct);
+                const d = greeks.delta || 0, g = greeks.gamma || 0;
+                const est = d * 0.02 + 0.5 * g * 0.02 * 0.02;
+                return fmtPnl(est);
+              })()}
+              color={(() => {
+                const v = m.stress_tests?.pnl_up_2pct ?? ((greeks.delta || 0) * 0.02 + 0.5 * (greeks.gamma || 0) * 0.02 * 0.02);
+                return v >= 0 ? 'cyan' : 'red';
+              })()}
+              subtitle="Estimated gain if market rises 2%"
+            />
+            <MetricCard
+              label="P&L if IV -5%"
+              value={fmtPnl(m.iv_stress_minus5 != null ? m.iv_stress_minus5 : (greeks.vega || 0) * -5)}
+              color={(m.iv_stress_minus5 != null ? m.iv_stress_minus5 : (greeks.vega || 0) * -5) >= 0 ? 'cyan' : 'red'}
+              subtitle="Impact of 5% IV contraction"
+            />
+            <MetricCard
+              label="P&L if IV +5%"
+              value={fmtPnl(m.iv_stress_plus5 != null ? m.iv_stress_plus5 : (greeks.vega || 0) * 5)}
+              color={(m.iv_stress_plus5 != null ? m.iv_stress_plus5 : (greeks.vega || 0) * 5) >= 0 ? 'cyan' : 'red'}
+              subtitle="Impact of 5% IV expansion"
+            />
+            <MetricCard
+              label="7-Day Decay"
+              value={fmtPnl(m.seven_day_theta != null ? m.seven_day_theta : (greeks.theta || 0) * 7)}
+              color={(m.seven_day_theta != null ? m.seven_day_theta : (greeks.theta || 0) * 7) >= 0 ? 'cyan' : 'red'}
+              subtitle="P&L if nothing changes for 7 days"
             />
             <MetricCard
               label="Day P&L"
@@ -210,83 +342,6 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
               color={m.total_pnl >= 0 ? 'green' : 'red'}
             />
           </div>
-
-          {/* Row 3: Exposure Breakdown */}
-          <div className="exposure-bar">
-            <div className="exposure-card">
-              <span className="exposure-label">% Net Long</span>
-              <span className="exposure-value color-cyan">
-                {m.pct_net_long != null ? `${m.pct_net_long.toFixed(1)}%` : '\u2014'}
-              </span>
-              {m.long_exposure != null && (
-                <span className="exposure-sub">{fmtDollar(m.long_exposure)}</span>
-              )}
-            </div>
-            <div className="exposure-card">
-              <span className="exposure-label">% Net Short</span>
-              <span className="exposure-value color-red">
-                {m.pct_net_short != null ? `${m.pct_net_short.toFixed(1)}%` : '\u2014'}
-              </span>
-              {m.short_exposure != null && (
-                <span className="exposure-sub">{fmtDollar(m.short_exposure)}</span>
-              )}
-            </div>
-            <div className="exposure-visual">
-              <div className="exposure-bar-track">
-                <div
-                  className="exposure-bar-long"
-                  style={{ width: `${m.pct_net_long || 0}%` }}
-                />
-              </div>
-              <div className="exposure-bar-labels">
-                <span>Long</span>
-                <span>Short</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Greeks Bar */}
-          <div className="greeks-bar">
-            <GreekCard
-              info={GREEK_INFO.delta}
-              value={fmtGreek(m.greeks.delta)}
-              rawValue={m.greeks.delta}
-              color={m.greeks.delta > 0 ? 'cyan' : m.greeks.delta < 0 ? 'red' : null}
-            />
-            <GreekCard
-              info={GREEK_INFO.gamma}
-              value={gammaGauge(m.greeks.gamma)}
-              rawValue={m.greeks.gamma}
-              color={m.greeks.gamma > 0 ? 'cyan' : m.greeks.gamma < 0 ? 'red' : null}
-            />
-            <GreekCard
-              info={GREEK_INFO.theta}
-              value={fmtGreek(m.greeks.theta)}
-              rawValue={m.greeks.theta}
-              color={m.greeks.theta < 0 ? 'red' : 'cyan'}
-            />
-            <GreekCard
-              info={GREEK_INFO.vega}
-              value={fmtGreek(m.greeks.vega)}
-              rawValue={m.greeks.vega}
-              color={m.greeks.vega > 0 ? 'cyan' : m.greeks.vega < 0 ? 'red' : null}
-            />
-            <GreekCard
-              info={GREEK_INFO.options_pnl}
-              value={hasOptions ? fmtPnl(optionsPnl) : '\u2014'}
-              rawValue={hasOptions ? optionsPnl : null}
-              color={hasOptions ? (optionsPnl >= 0 ? 'cyan' : 'red') : null}
-            />
-          </div>
-
-          {/* Risk Flags */}
-          {m.risk_flags && m.risk_flags.length > 0 && (
-            <div className="risk-flags">
-              {m.risk_flags.map((f, i) => (
-                <div key={i} className="risk-flag">{f}</div>
-              ))}
-            </div>
-          )}
 
           {/* Holdings Table */}
           <HoldingsTable
@@ -314,12 +369,13 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
   );
 }
 
-function MetricCard({ label, value, sub, color }) {
+function MetricCard({ label, value, sub, color, subtitle }) {
   return (
     <div className="port-metric-card">
       <span className="port-metric-label">{label}</span>
       <span className={`port-metric-value ${color ? `color-${color}` : ''}`}>{value}</span>
       {sub && <span className={`port-metric-sub ${color ? `color-${color}` : ''}`}>{sub}</span>}
+      {subtitle && <span className="port-metric-subtitle">{subtitle}</span>}
     </div>
   );
 }
