@@ -177,7 +177,7 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
             )}
           </div>
 
-          {/* Row 2: Key Stats */}
+          {/* Key Stats */}
           <div className="metrics-bar">
             <MarginCard
               parsedMargin={parsedMargin}
@@ -194,24 +194,30 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
               color={leverageVal != null && leverageVal > 1.5 ? 'red' : null}
             />
             <MetricCard
-              label="Gross Exposure"
-              value={fmtDollar(m.gross_exposure)}
-            />
-            <MetricCard
               label="Day P&L"
               value={fmtPnl(m.day_pnl)}
               sub={m.day_pnl_percent != null ? `${m.day_pnl_percent >= 0 ? '+' : ''}${m.day_pnl_percent.toFixed(2)}%` : null}
               color={m.day_pnl >= 0 ? 'green' : 'red'}
             />
             <MetricCard
-              label="Total P&L"
-              value={fmtPnl(m.total_pnl)}
-              sub={m.total_pnl_percent != null ? `${m.total_pnl_percent >= 0 ? '+' : ''}${m.total_pnl_percent.toFixed(2)}%` : null}
-              color={m.total_pnl >= 0 ? 'green' : 'red'}
+              label="Delta"
+              value={fmtGreek(m.greeks?.delta)}
+              color={m.greeks?.delta > 0 ? 'cyan' : m.greeks?.delta < 0 ? 'red' : null}
+            />
+            <MetricCard
+              label="Theta"
+              value={fmtGreek(m.greeks?.theta)}
+              sub={m.greeks?.theta != null ? `${fmtGreek(m.greeks.theta * 7)}/wk` : null}
+              color={m.greeks?.theta < 0 ? 'red' : 'cyan'}
+            />
+            <MetricCard
+              label="Sharpe"
+              value={computeSharpe(m)}
+              color={sharpeColor(m)}
             />
           </div>
 
-          {/* Row 3: Exposure Breakdown */}
+          {/* Exposure Breakdown */}
           <div className="exposure-bar">
             <div className="exposure-card">
               <span className="exposure-label">% Net Long</span>
@@ -244,49 +250,6 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
               </div>
             </div>
           </div>
-
-          {/* Greeks Bar */}
-          <div className="greeks-bar">
-            <GreekCard
-              info={GREEK_INFO.delta}
-              value={fmtGreek(m.greeks.delta)}
-              rawValue={m.greeks.delta}
-              color={m.greeks.delta > 0 ? 'cyan' : m.greeks.delta < 0 ? 'red' : null}
-            />
-            <GreekCard
-              info={GREEK_INFO.gamma}
-              value={gammaGauge(m.greeks.gamma)}
-              rawValue={m.greeks.gamma}
-              color={m.greeks.gamma > 0 ? 'cyan' : m.greeks.gamma < 0 ? 'red' : null}
-            />
-            <GreekCard
-              info={GREEK_INFO.theta}
-              value={fmtGreek(m.greeks.theta)}
-              rawValue={m.greeks.theta}
-              color={m.greeks.theta < 0 ? 'red' : 'cyan'}
-            />
-            <GreekCard
-              info={GREEK_INFO.vega}
-              value={fmtGreek(m.greeks.vega)}
-              rawValue={m.greeks.vega}
-              color={m.greeks.vega > 0 ? 'cyan' : m.greeks.vega < 0 ? 'red' : null}
-            />
-            <GreekCard
-              info={GREEK_INFO.options_pnl}
-              value={hasOptions ? fmtPnl(optionsPnl) : '\u2014'}
-              rawValue={hasOptions ? optionsPnl : null}
-              color={hasOptions ? (optionsPnl >= 0 ? 'cyan' : 'red') : null}
-            />
-          </div>
-
-          {/* Risk Flags */}
-          {m.risk_flags && m.risk_flags.length > 0 && (
-            <div className="risk-flags">
-              {m.risk_flags.map((f, i) => (
-                <div key={i} className="risk-flag">{f}</div>
-              ))}
-            </div>
-          )}
 
           {/* Holdings Table */}
           <HoldingsTable
@@ -401,4 +364,24 @@ function gammaGauge(v) {
   if (abs < 100) return 'Low';
   if (abs < 1000) return 'Medium';
   return 'High';
+}
+
+function computeSharpe(m) {
+  if (!m || m.day_pnl_percent == null || m.total_market_value == null) return '\u2014';
+  const dailyRet = m.day_pnl_percent / 100;
+  const annRet = dailyRet * 252;
+  const dayVol = Math.abs(dailyRet) || 0.01;
+  const annVol = dayVol * Math.sqrt(252);
+  const sharpe = annVol > 0 ? annRet / annVol : 0;
+  return sharpe.toFixed(2);
+}
+
+function sharpeColor(m) {
+  if (!m || m.day_pnl_percent == null) return null;
+  const dailyRet = m.day_pnl_percent / 100;
+  const annRet = dailyRet * 252;
+  const dayVol = Math.abs(dailyRet) || 0.01;
+  const annVol = dayVol * Math.sqrt(252);
+  const sharpe = annVol > 0 ? annRet / annVol : 0;
+  return sharpe >= 1 ? 'green' : sharpe >= 0 ? 'cyan' : 'red';
 }
