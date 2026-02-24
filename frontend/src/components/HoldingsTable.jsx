@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { deletePosition, updatePosition } from '../api/client';
 
 const COLUMNS = [
@@ -16,13 +16,66 @@ const COLUMNS = [
   { key: 'weight', label: 'Weight', align: 'right' },
 ];
 
+function groupByTicker(positions) {
+  const groups = {};
+  for (const pos of positions) {
+    const t = pos.ticker;
+    if (!groups[t]) groups[t] = [];
+    groups[t].push(pos);
+  }
+
+  return Object.entries(groups).map(([ticker, items]) => {
+    if (items.length === 1) {
+      return { ticker, isSingle: true, positions: items, parent: items[0] };
+    }
+    // Aggregate parent row
+    const parent = {
+      ticker,
+      asset_type: items.map(p => p.asset_type.charAt(0).toUpperCase() + p.asset_type.slice(1)).join(' + '),
+      quantity: null,
+      avg_cost: null,
+      current_price: null,
+      market_value: items.reduce((s, p) => s + (p.market_value || 0), 0),
+      day_pnl: items.reduce((s, p) => s + (p.day_pnl || 0), 0),
+      pnl: items.reduce((s, p) => s + (p.pnl || 0), 0),
+      pnl_percent: null,
+      delta_per_unit: null,
+      delta: items.reduce((s, p) => s + (p.delta || 0), 0),
+      theta: items.reduce((s, p) => s + (p.theta || 0), 0),
+      weight: items.reduce((s, p) => s + (p.weight || 0), 0),
+    };
+    // Compute aggregate pnl_percent from total cost
+    const totalCost = items.reduce((s, p) => s + (p.cost_basis || 0), 0);
+    if (totalCost !== 0) {
+      parent.pnl_percent = (parent.pnl / Math.abs(totalCost)) * 100;
+    }
+    return { ticker, isSingle: false, positions: items, parent };
+  });
+}
+
 export default function HoldingsTable({ positions, onNavigateToAnalysis, onRefresh }) {
   const [sortKey, setSortKey] = useState('market_value');
   const [sortAsc, setSortAsc] = useState(false);
+  const [expandedTickers, setExpandedTickers] = useState(new Set());
   const [deleting, setDeleting] = useState(null);
   const [editingId, setEditingId] = useState(null);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
+
+  const groups = useMemo(() => groupByTicker(positions), [positions]);
+
+  const sortedGroups = useMemo(() => {
+    return [...groups].sort((a, b) => {
+      let va = a.parent[sortKey], vb = b.parent[sortKey];
+      if (va == null) va = sortAsc ? Infinity : -Infinity;
+      if (vb == null) vb = sortAsc ? Infinity : -Infinity;
+      if (typeof va === 'string') va = va.toLowerCase();
+      if (typeof vb === 'string') vb = vb.toLowerCase();
+      if (va < vb) return sortAsc ? -1 : 1;
+      if (va > vb) return sortAsc ? 1 : -1;
+      return 0;
+    });
+  }, [groups, sortKey, sortAsc]);
 
   function handleSort(key) {
     if (sortKey === key) {
@@ -33,16 +86,14 @@ export default function HoldingsTable({ positions, onNavigateToAnalysis, onRefre
     }
   }
 
-  const sorted = [...positions].sort((a, b) => {
-    let va = a[sortKey], vb = b[sortKey];
-    if (va == null) va = sortAsc ? Infinity : -Infinity;
-    if (vb == null) vb = sortAsc ? Infinity : -Infinity;
-    if (typeof va === 'string') va = va.toLowerCase();
-    if (typeof vb === 'string') vb = vb.toLowerCase();
-    if (va < vb) return sortAsc ? -1 : 1;
-    if (va > vb) return sortAsc ? 1 : -1;
-    return 0;
-  });
+  function toggleExpand(ticker) {
+    setExpandedTickers(prev => {
+      const next = new Set(prev);
+      if (next.has(ticker)) next.delete(ticker);
+      else next.add(ticker);
+      return next;
+    });
+  }
 
   async function handleDelete(e, id) {
     e.stopPropagation();
@@ -99,6 +150,8 @@ export default function HoldingsTable({ positions, onNavigateToAnalysis, onRefre
     if (val == null || val === undefined) return '\u2014';
     switch (col.key) {
       case 'asset_type': {
+        // For grouped parent rows, asset_type is already a summary string
+        if (typeof val === 'string' && val.includes('+')) return val;
         const label = val.charAt(0).toUpperCase() + val.slice(1);
         if (val === 'call' || val === 'put') {
           return `${label} ${row.strike || ''}`;
@@ -132,12 +185,13 @@ export default function HoldingsTable({ positions, onNavigateToAnalysis, onRefre
   }
 
   const isEditing = (id) => editingId === id;
+  const totalPositions = positions.length;
 
   return (
     <div className="holdings-section">
       <div className="holdings-header">
         <h3>Holdings</h3>
-        <span className="holdings-count">{positions.length} position{positions.length !== 1 ? 's' : ''}</span>
+        <span className="holdings-count">{totalPositions} position{totalPositions !== 1 ? 's' : ''} / {groups.length} ticker{groups.length !== 1 ? 's' : ''}</span>
       </div>
       <div className="holdings-table-wrapper">
         <table className="holdings-table">
@@ -157,99 +211,229 @@ export default function HoldingsTable({ positions, onNavigateToAnalysis, onRefre
             </tr>
           </thead>
           <tbody>
-            {sorted.map(pos => (
-              <tr
-                key={pos.id}
-                className={`holdings-row ${isEditing(pos.id) ? 'editing-row' : ''}`}
-                onClick={() => !isEditing(pos.id) && onNavigateToAnalysis(pos.ticker)}
-              >
-                {COLUMNS.map(col => {
-                  const val = pos[col.key];
-                  const coloredKeys = ['pnl', 'pnl_percent', 'day_pnl', 'delta_per_unit', 'theta'];
-                  const isColored = coloredKeys.includes(col.key);
+            {sortedGroups.map(group => {
+              const isExpanded = expandedTickers.has(group.ticker);
+              const isMulti = !group.isSingle;
 
-                  // Editable cells when in edit mode
-                  if (isEditing(pos.id)) {
-                    if (col.key === 'quantity') {
-                      return (
-                        <td key={col.key} className="text-right" onClick={e => e.stopPropagation()}>
-                          <input
-                            className="inline-edit-input"
-                            type="number"
-                            value={editForm.quantity}
-                            onChange={e => setEditForm({ ...editForm, quantity: e.target.value })}
-                          />
-                        </td>
-                      );
-                    }
-                    if (col.key === 'avg_cost') {
-                      return (
-                        <td key={col.key} className="text-right" onClick={e => e.stopPropagation()}>
-                          <input
-                            className="inline-edit-input"
-                            type="number"
-                            step="0.01"
-                            value={editForm.avg_cost}
-                            onChange={e => setEditForm({ ...editForm, avg_cost: e.target.value })}
-                          />
-                        </td>
-                      );
-                    }
-                  }
-
-                  return (
-                    <td
-                      key={col.key}
-                      className={`${col.align === 'right' ? 'text-right' : ''} ${isColored ? pnlClass(val) : ''} ${col.key === 'ticker' ? 'ticker-cell' : ''}`}
-                    >
-                      {formatVal(col, val, pos)}
-                    </td>
-                  );
-                })}
-                <td className="actions-cell" onClick={e => e.stopPropagation()}>
-                  {isEditing(pos.id) ? (
-                    <div className="edit-actions">
-                      <button
-                        className="btn-save-inline"
-                        title="Save"
-                        disabled={saving}
-                        onClick={e => handleEditSave(e, pos.id)}
-                      >
-                        {'\u2713'}
-                      </button>
-                      <button
-                        className="btn-cancel-inline"
-                        title="Cancel"
-                        onClick={handleEditCancel}
-                      >
-                        {'\u2715'}
-                      </button>
-                    </div>
-                  ) : (
-                    <div className="edit-actions">
-                      <button
-                        className="btn-edit"
-                        title="Edit position"
-                        onClick={e => handleEditStart(e, pos)}
-                      >
-                        {'\u270E'}
-                      </button>
-                      <button
-                        className="btn-remove"
-                        title="Delete position"
-                        disabled={deleting === pos.id}
-                        onClick={e => handleDelete(e, pos.id)}
-                      >
-                        &times;
-                      </button>
-                    </div>
-                  )}
-                </td>
-              </tr>
-            ))}
+              return (
+                <GroupRows
+                  key={group.ticker}
+                  group={group}
+                  isMulti={isMulti}
+                  isExpanded={isExpanded}
+                  onToggle={() => toggleExpand(group.ticker)}
+                  onNavigate={onNavigateToAnalysis}
+                  formatVal={formatVal}
+                  pnlClass={pnlClass}
+                  isEditing={isEditing}
+                  editForm={editForm}
+                  setEditForm={setEditForm}
+                  onEditStart={handleEditStart}
+                  onEditCancel={handleEditCancel}
+                  onEditSave={handleEditSave}
+                  onDelete={handleDelete}
+                  deleting={deleting}
+                  saving={saving}
+                />
+              );
+            })}
           </tbody>
         </table>
       </div>
     </div>
+  );
+}
+
+function GroupRows({
+  group, isMulti, isExpanded, onToggle, onNavigate,
+  formatVal, pnlClass, isEditing, editForm, setEditForm,
+  onEditStart, onEditCancel, onEditSave, onDelete, deleting, saving,
+}) {
+  const { ticker, parent, positions } = group;
+
+  if (!isMulti) {
+    // Single position — render as normal row
+    const pos = positions[0];
+    return (
+      <PositionRow
+        pos={pos}
+        isChild={false}
+        onNavigate={onNavigate}
+        formatVal={formatVal}
+        pnlClass={pnlClass}
+        isEditing={isEditing}
+        editForm={editForm}
+        setEditForm={setEditForm}
+        onEditStart={onEditStart}
+        onEditCancel={onEditCancel}
+        onEditSave={onEditSave}
+        onDelete={onDelete}
+        deleting={deleting}
+        saving={saving}
+      />
+    );
+  }
+
+  // Multi-position group
+  return (
+    <>
+      {/* Parent row */}
+      <tr
+        className={`holdings-row group-parent-row ${isExpanded ? 'group-expanded' : ''}`}
+        onClick={onToggle}
+      >
+        {COLUMNS.map(col => {
+          const val = parent[col.key];
+          const coloredKeys = ['pnl', 'pnl_percent', 'day_pnl', 'theta'];
+          const isColored = coloredKeys.includes(col.key);
+
+          if (col.key === 'ticker') {
+            return (
+              <td key={col.key} className="ticker-cell group-ticker-cell">
+                <span className="group-chevron">{isExpanded ? '\u25BC' : '\u25B6'}</span>
+                {ticker}
+              </td>
+            );
+          }
+
+          return (
+            <td
+              key={col.key}
+              className={`${col.align === 'right' ? 'text-right' : ''} ${isColored ? pnlClass(val) : ''}`}
+            >
+              {formatVal(col, val, parent)}
+            </td>
+          );
+        })}
+        <td className="actions-cell"></td>
+      </tr>
+
+      {/* Child rows */}
+      {isExpanded && positions.map(pos => (
+        <PositionRow
+          key={pos.id}
+          pos={pos}
+          isChild={true}
+          onNavigate={onNavigate}
+          formatVal={formatVal}
+          pnlClass={pnlClass}
+          isEditing={isEditing}
+          editForm={editForm}
+          setEditForm={setEditForm}
+          onEditStart={onEditStart}
+          onEditCancel={onEditCancel}
+          onEditSave={onEditSave}
+          onDelete={onDelete}
+          deleting={deleting}
+          saving={saving}
+        />
+      ))}
+    </>
+  );
+}
+
+function PositionRow({
+  pos, isChild, onNavigate, formatVal, pnlClass,
+  isEditing, editForm, setEditForm,
+  onEditStart, onEditCancel, onEditSave, onDelete, deleting, saving,
+}) {
+  const editing = isEditing(pos.id);
+
+  return (
+    <tr
+      className={`holdings-row ${editing ? 'editing-row' : ''} ${isChild ? 'child-row' : ''}`}
+      onClick={() => !editing && onNavigate(pos.ticker)}
+    >
+      {COLUMNS.map(col => {
+        const val = pos[col.key];
+        const coloredKeys = ['pnl', 'pnl_percent', 'day_pnl', 'delta_per_unit', 'theta'];
+        const isColored = coloredKeys.includes(col.key);
+
+        // Editable cells when in edit mode
+        if (editing) {
+          if (col.key === 'quantity') {
+            return (
+              <td key={col.key} className="text-right" onClick={e => e.stopPropagation()}>
+                <input
+                  className="inline-edit-input"
+                  type="number"
+                  value={editForm.quantity}
+                  onChange={e => setEditForm({ ...editForm, quantity: e.target.value })}
+                />
+              </td>
+            );
+          }
+          if (col.key === 'avg_cost') {
+            return (
+              <td key={col.key} className="text-right" onClick={e => e.stopPropagation()}>
+                <input
+                  className="inline-edit-input"
+                  type="number"
+                  step="0.01"
+                  value={editForm.avg_cost}
+                  onChange={e => setEditForm({ ...editForm, avg_cost: e.target.value })}
+                />
+              </td>
+            );
+          }
+        }
+
+        if (col.key === 'ticker' && isChild) {
+          return (
+            <td key={col.key} className="ticker-cell child-ticker-cell">
+              {pos.ticker}
+            </td>
+          );
+        }
+
+        return (
+          <td
+            key={col.key}
+            className={`${col.align === 'right' ? 'text-right' : ''} ${isColored ? pnlClass(val) : ''} ${col.key === 'ticker' ? 'ticker-cell' : ''}`}
+          >
+            {formatVal(col, val, pos)}
+          </td>
+        );
+      })}
+      <td className="actions-cell" onClick={e => e.stopPropagation()}>
+        {editing ? (
+          <div className="edit-actions">
+            <button
+              className="btn-save-inline"
+              title="Save"
+              disabled={saving}
+              onClick={e => onEditSave(e, pos.id)}
+            >
+              {'\u2713'}
+            </button>
+            <button
+              className="btn-cancel-inline"
+              title="Cancel"
+              onClick={onEditCancel}
+            >
+              {'\u2715'}
+            </button>
+          </div>
+        ) : (
+          <div className="edit-actions">
+            <button
+              className="btn-edit"
+              title="Edit position"
+              onClick={e => onEditStart(e, pos)}
+            >
+              {'\u270E'}
+            </button>
+            <button
+              className="btn-remove"
+              title="Delete position"
+              disabled={deleting === pos.id}
+              onClick={e => onDelete(e, pos.id)}
+            >
+              &times;
+            </button>
+          </div>
+        )}
+      </td>
+    </tr>
   );
 }

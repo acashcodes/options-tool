@@ -53,10 +53,16 @@ class NewsletterStore:
                     context_bullets_json TEXT,
                     portfolio_bullets_json TEXT,
                     watchlist_bullets_json TEXT,
+                    summary_lines_json TEXT,
                     created_at TEXT DEFAULT (datetime('now')),
                     read INTEGER DEFAULT 0
                 )
             """)
+            # Migration: add summary_lines_json if missing (existing DBs)
+            try:
+                conn.execute("ALTER TABLE newsletter_issues ADD COLUMN summary_lines_json TEXT")
+            except Exception:
+                pass  # Column already exists
 
     def message_id_exists(self, message_id: str) -> bool:
         with self._db() as conn:
@@ -73,8 +79,8 @@ class NewsletterStore:
                    (id, source_name, from_email, subject, received_at,
                     message_id, web_url, raw_mime_enc, raw_text_enc, raw_html_enc,
                     headline, context_bullets_json, portfolio_bullets_json,
-                    watchlist_bullets_json)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    watchlist_bullets_json, summary_lines_json)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     issue["id"],
                     issue.get("source_name"),
@@ -90,6 +96,7 @@ class NewsletterStore:
                     json.dumps(issue.get("context_bullets", [])),
                     json.dumps(issue.get("portfolio_bullets", [])),
                     json.dumps(issue.get("watchlist_bullets", [])),
+                    json.dumps(issue.get("summary_lines", [])),
                 ),
             )
 
@@ -99,7 +106,8 @@ class NewsletterStore:
                 """SELECT id, source_name, from_email, subject, received_at,
                           message_id, web_url, headline,
                           context_bullets_json, portfolio_bullets_json,
-                          watchlist_bullets_json, created_at, read
+                          watchlist_bullets_json, summary_lines_json,
+                          created_at, read
                    FROM newsletter_issues
                    ORDER BY received_at DESC LIMIT 1"""
             ).fetchone()
@@ -109,7 +117,8 @@ class NewsletterStore:
         cols = """id, source_name, from_email, subject, received_at,
                   message_id, web_url, headline,
                   context_bullets_json, portfolio_bullets_json,
-                  watchlist_bullets_json, created_at, read"""
+                  watchlist_bullets_json, summary_lines_json,
+                  created_at, read"""
         if include_encrypted:
             cols += ", raw_mime_enc, raw_text_enc, raw_html_enc"
         with self._db() as conn:
@@ -159,6 +168,12 @@ class NewsletterStore:
             return cur.rowcount > 0
 
     def _row_to_summary(self, row: sqlite3.Row) -> dict[str, Any]:
+        # summary_lines_json may not exist in older DB rows
+        summary_raw = None
+        try:
+            summary_raw = row["summary_lines_json"]
+        except (IndexError, KeyError):
+            pass
         return {
             "id": row["id"],
             "source_name": row["source_name"],
@@ -171,6 +186,7 @@ class NewsletterStore:
             "context_bullets": json.loads(row["context_bullets_json"] or "[]"),
             "portfolio_bullets": json.loads(row["portfolio_bullets_json"] or "[]"),
             "watchlist_bullets": json.loads(row["watchlist_bullets_json"] or "[]"),
+            "summary_lines": json.loads(summary_raw or "[]"),
             "created_at": row["created_at"],
             "read": bool(row["read"]),
         }

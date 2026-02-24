@@ -1,8 +1,7 @@
 import { useState } from 'react';
 
 export default function NewsletterHighlightsCard({ newsletter, onViewIssue, onViewHistory }) {
-  const [portfolioExpanded, setPortfolioExpanded] = useState(true);
-  const [watchlistExpanded, setWatchlistExpanded] = useState(false);
+  const [detailsExpanded, setDetailsExpanded] = useState(false);
 
   if (!newsletter) return null;
 
@@ -12,26 +11,38 @@ export default function NewsletterHighlightsCard({ newsletter, onViewIssue, onVi
     source_name,
     received_at,
     web_url,
+    summary_lines = [],
     context_bullets = [],
     portfolio_bullets = [],
     watchlist_bullets = [],
     read,
   } = newsletter;
 
+  const hasSummary = summary_lines.length > 0;
   const hasPortfolio = portfolio_bullets.length > 0;
   const hasWatchlist = watchlist_bullets.length > 0;
+  const hasDetails = hasPortfolio || hasWatchlist;
 
   return (
     <div className={`newsletter-card ${read ? '' : 'newsletter-unread'}`}>
       <div className="newsletter-card-header">
         <span className="newsletter-source">{source_name || 'Newsletter'}</span>
-        <span className="newsletter-time">{formatTimeAgo(received_at)}</span>
+        <span className="newsletter-date">{formatDate(received_at)}</span>
       </div>
 
       <div className="newsletter-headline">{headline}</div>
 
-      {/* Context bullets */}
-      {context_bullets.length > 0 && (
+      {/* Condensed summary lines (3-5 industry-relevant takeaways) */}
+      {hasSummary && (
+        <div className="newsletter-summary">
+          {summary_lines.map((line, i) => (
+            <p key={i} className="newsletter-summary-line">{line}</p>
+          ))}
+        </div>
+      )}
+
+      {/* Fallback: context bullets only if no summary available */}
+      {!hasSummary && context_bullets.length > 0 && (
         <div className="newsletter-section">
           <ul className="newsletter-bullets">
             {context_bullets.map((b, i) => (
@@ -41,42 +52,33 @@ export default function NewsletterHighlightsCard({ newsletter, onViewIssue, onVi
         </div>
       )}
 
-      {/* Portfolio bullets (auto-expanded) */}
-      {hasPortfolio && (
+      {/* Expandable ticker details (portfolio + watchlist mentions) */}
+      {hasDetails && (
         <div className="newsletter-section">
           <button
-            className={`newsletter-section-toggle ${portfolioExpanded ? 'expanded' : ''}`}
-            onClick={() => setPortfolioExpanded(!portfolioExpanded)}
+            className={`newsletter-section-toggle ${detailsExpanded ? 'expanded' : ''}`}
+            onClick={() => setDetailsExpanded(!detailsExpanded)}
           >
             <span className="newsletter-section-icon">&#9656;</span>
-            Portfolio Mentions ({portfolio_bullets.length})
+            Ticker Mentions ({portfolio_bullets.length + watchlist_bullets.length})
           </button>
-          {portfolioExpanded && (
-            <ul className="newsletter-bullets newsletter-bullets-portfolio">
-              {portfolio_bullets.map((b, i) => (
-                <li key={i}>{b}</li>
-              ))}
-            </ul>
-          )}
-        </div>
-      )}
-
-      {/* Watchlist bullets (collapsed by default) */}
-      {hasWatchlist && (
-        <div className="newsletter-section">
-          <button
-            className={`newsletter-section-toggle ${watchlistExpanded ? 'expanded' : ''}`}
-            onClick={() => setWatchlistExpanded(!watchlistExpanded)}
-          >
-            <span className="newsletter-section-icon">&#9656;</span>
-            Watchlist Mentions ({watchlist_bullets.length})
-          </button>
-          {watchlistExpanded && (
-            <ul className="newsletter-bullets newsletter-bullets-watchlist">
-              {watchlist_bullets.map((b, i) => (
-                <li key={i}>{b}</li>
-              ))}
-            </ul>
+          {detailsExpanded && (
+            <>
+              {hasPortfolio && (
+                <ul className="newsletter-bullets newsletter-bullets-portfolio">
+                  {portfolio_bullets.map((b, i) => (
+                    <li key={`p-${i}`}>{b}</li>
+                  ))}
+                </ul>
+              )}
+              {hasWatchlist && (
+                <ul className="newsletter-bullets newsletter-bullets-watchlist">
+                  {watchlist_bullets.map((b, i) => (
+                    <li key={`w-${i}`}>{b}</li>
+                  ))}
+                </ul>
+              )}
+            </>
           )}
         </div>
       )}
@@ -105,18 +107,15 @@ export default function NewsletterHighlightsCard({ newsletter, onViewIssue, onVi
   );
 }
 
-function formatTimeAgo(dateStr) {
+function formatDate(dateStr) {
   if (!dateStr) return '';
   try {
     const d = new Date(dateStr);
-    const now = new Date();
-    const diffMs = now - d;
-    const diffMins = Math.floor(diffMs / 60000);
-    if (diffMins < 60) return `${diffMins}m ago`;
-    const diffHrs = Math.floor(diffMins / 60);
-    if (diffHrs < 24) return `${diffHrs}h ago`;
-    const diffDays = Math.floor(diffHrs / 24);
-    return `${diffDays}d ago`;
+    return d.toLocaleDateString('en-US', {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
   } catch {
     return '';
   }

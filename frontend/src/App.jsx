@@ -1,10 +1,11 @@
 import { useState } from 'react';
 import './App.css';
-import Dashboard from './components/Dashboard';
+import DashboardTab from './components/DashboardTab';
+import PortfolioTab from './components/PortfolioTab';
 import Analysis from './components/Analysis';
 
 function App() {
-  const [activeTab, setActiveTab] = useState('analysis');
+  const [activeTab, setActiveTab] = useState('dashboard');
   const [preloadTicker, setPreloadTicker] = useState(null);
 
   function handleNavigateToAnalysis(ticker) {
@@ -15,23 +16,33 @@ function App() {
   return (
     <>
       <nav className="tab-bar">
-        <span className="app-title">OPTIONS ANALYZER</span>
-        <button
-          className={activeTab === 'dashboard' ? 'active' : ''}
-          onClick={() => setActiveTab('dashboard')}
-        >
-          Dashboard
-        </button>
-        <button
-          className={activeTab === 'analysis' ? 'active' : ''}
-          onClick={() => setActiveTab('analysis')}
-        >
-          Analysis
-        </button>
+        <div className="tab-bar-inner">
+          <button
+            className={`tab-btn ${activeTab === 'dashboard' ? 'active' : ''}`}
+            onClick={() => setActiveTab('dashboard')}
+          >
+            Dashboard
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'portfolio' ? 'active' : ''}`}
+            onClick={() => setActiveTab('portfolio')}
+          >
+            Portfolio
+          </button>
+          <button
+            className={`tab-btn ${activeTab === 'analysis' ? 'active' : ''}`}
+            onClick={() => setActiveTab('analysis')}
+          >
+            Analysis
+          </button>
+        </div>
       </nav>
 
       {activeTab === 'dashboard' && (
-        <Dashboard onNavigateToAnalysis={handleNavigateToAnalysis} />
+        <DashboardTab onNavigateToAnalysis={handleNavigateToAnalysis} />
+      )}
+      {activeTab === 'portfolio' && (
+        <PortfolioTab onNavigateToAnalysis={handleNavigateToAnalysis} />
       )}
       {activeTab === 'analysis' && (
         <Analysis

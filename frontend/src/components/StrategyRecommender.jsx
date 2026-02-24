@@ -200,7 +200,7 @@ function RecommendationCard({ rec, rank, onLoad }) {
               <Area type="monotone" dataKey="profit" stroke="#00d4aa" fill={`url(#profitFill-${rank})`} strokeWidth={1.5} dot={false} />
               <Area type="monotone" dataKey="loss" stroke="#ff4757" fill={`url(#lossFill-${rank})`} strokeWidth={1.5} dot={false} />
               <ReferenceLine y={0} stroke="#444" strokeDasharray="2 2" />
-              <ReferenceLine x={rec.current_price} stroke="#3498db" strokeDasharray="2 2" strokeWidth={1} />
+              <ReferenceLine x={rec.current_price} stroke="#2563eb" strokeDasharray="2 2" strokeWidth={1} />
               <XAxis dataKey="price" hide />
               <YAxis hide />
               <Tooltip content={<MiniTooltip />} />
