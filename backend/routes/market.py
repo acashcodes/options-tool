@@ -15,6 +15,7 @@ class GreeksRequest(BaseModel):
     r: float = 0.045
     sigma: float  # annualised decimal (e.g. 0.30)
     option_type: str = "call"
+    q: float = 0.0  # dividend yield
 
 
 class BatchGreeksLeg(BaseModel):
@@ -24,6 +25,7 @@ class BatchGreeksLeg(BaseModel):
     r: float = 0.045
     sigma: float
     option_type: str = "call"
+    q: float = 0.0
 
 
 class BatchGreeksRequest(BaseModel):
@@ -60,9 +62,29 @@ def create_market_routes(provider: DataProvider) -> APIRouter:
             raise HTTPException(status_code=404, detail=f"Could not fetch expirations for '{symbol}': {e}")
 
     @router.get("/options/chain/{symbol}")
-    def get_chain(symbol: str, expiration: str = Query(..., description="Expiration date YYYY-MM-DD")):
+    def get_chain(
+        symbol: str,
+        expiration: str = Query(..., description="Expiration date YYYY-MM-DD"),
+        strike_range_pct: Optional[float] = Query(None, description="Filter strikes within +/-% of underlying"),
+        min_strike: Optional[float] = Query(None),
+        max_strike: Optional[float] = Query(None),
+    ):
         try:
             chain = provider.get_options_chain(symbol, expiration)
+
+            # Backend strike filtering
+            underlying_price = chain.get("underlying_price")
+            if underlying_price and strike_range_pct is not None:
+                lo = underlying_price * (1 - strike_range_pct)
+                hi = underlying_price * (1 + strike_range_pct)
+                chain["calls"] = [c for c in chain.get("calls", []) if lo <= c["strike"] <= hi]
+                chain["puts"] = [p for p in chain.get("puts", []) if lo <= p["strike"] <= hi]
+            elif min_strike is not None or max_strike is not None:
+                lo = min_strike or 0
+                hi = max_strike or float("inf")
+                chain["calls"] = [c for c in chain.get("calls", []) if lo <= c["strike"] <= hi]
+                chain["puts"] = [p for p in chain.get("puts", []) if lo <= p["strike"] <= hi]
+
             return {"symbol": symbol.upper(), "expiration": expiration, **chain}
         except Exception as e:
             raise HTTPException(status_code=404, detail=f"Could not fetch chain for '{symbol}' at {expiration}: {e}")
@@ -71,29 +93,14 @@ def create_market_routes(provider: DataProvider) -> APIRouter:
     def calc_greeks(req: GreeksRequest):
         """Compute Greeks for a single option."""
         try:
-            result = compute_greeks(req.S, req.K, req.t, req.r, req.sigma, req.option_type)
-            result["prob_itm"] = round(prob_itm(req.S, req.K, req.t, req.r, req.sigma, req.option_type), 4)
+            result = compute_greeks(req.S, req.K, req.t, req.r, req.sigma, req.option_type, q=req.q)
+            result["prob_itm"] = prob_itm(req.S, req.K, req.t, req.r, req.sigma, req.option_type, q=req.q)
             return result
         except Exception as e:
             raise HTTPException(status_code=400, detail=str(e))
 
-    @router.post("/greeks/payoff-curve")
-    def calc_payoff_curve(req: BatchGreeksRequest):
-        """Compute pre-expiration P&L curve for a multi-leg strategy.
-
-        For each price point, computes the theoretical value of the position
-        using BS pricing, minus the entry cost.
-        """
-        try:
-            results = []
-            for price in req.price_points:
-                total_value = 0.0
-                for leg in req.legs:
-                    option_price = bs_price(price, leg.K, leg.t, leg.r, leg.sigma, leg.option_type)
-                    total_value += option_price
-                results.append({"price": round(price, 2), "value": round(total_value, 4)})
-            return {"curve": results}
-        except Exception as e:
-            raise HTTPException(status_code=400, detail=str(e))
+    # NOTE: /greeks/payoff-curve has been removed (WP2.5).
+    # Use POST /api/strategy/analyze for correct P&L curves with proper
+    # sign conventions, entry costs, and multi-leg support.
 
     return router

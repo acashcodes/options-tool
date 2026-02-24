@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { useEffect, useState, useMemo, useCallback } from 'react';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -9,9 +9,8 @@ import {
   Tooltip,
   ReferenceLine,
   Label,
-  Legend,
 } from 'recharts';
-import { analyzeStrategy, strategyPayoff } from './PayoffDiagram';
+import { analyzeStrategy as analyzeStrategyAPI } from '../api/client';
 
 function fmt(n) {
   if (n == null) return '—';
@@ -25,7 +24,48 @@ function fmtCompact(n) {
 }
 
 function legsSummary(legs) {
-  return legs.map((l) => `${l.action === 'buy' ? 'Buy' : 'Sell'} ${l.type} $${l.strike}`).join(' / ');
+  return legs.map((l) => {
+    if (l.instrument === 'stock') {
+      return `${l.action === 'buy' ? 'Buy' : 'Sell'} ${l.quantity} Shares`;
+    }
+    return `${l.action === 'buy' ? 'Buy' : 'Sell'} ${l.type} $${l.strike}`;
+  }).join(' / ');
+}
+
+function toBackendLeg(leg) {
+  if (leg.instrument === 'stock') {
+    return {
+      instrument: 'stock',
+      action: leg.action,
+      quantity: leg.quantity,
+      entry_price: leg.entry_price || leg.premium || 0,
+    };
+  }
+  return {
+    instrument: 'option',
+    option_type: leg.type === 'Call' ? 'call' : 'put',
+    action: leg.action,
+    quantity: leg.quantity,
+    strike: leg.strike,
+    expiration: leg.expiration,
+    iv: leg.iv != null ? leg.iv / 100 : null,
+    multiplier: 100,
+    entry_price: leg.premium || 0,
+    bid: leg.bid,
+    ask: leg.ask,
+  };
+}
+
+function buildPayload(legs, currentPrice, quote) {
+  return {
+    underlying: {
+      price: currentPrice,
+      dividend_yield: quote?.dividend_yield || 0,
+    },
+    legs: legs.map(toBackendLeg),
+    days_forward: 0,
+    curve_points: 200,
+  };
 }
 
 function CustomTooltip({ active, payload, label }) {
@@ -48,54 +88,106 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-export default function StrategyComparison({ slotA, slotB, currentPrice, onClear }) {
-  const analysisA = useMemo(() => analyzeStrategy(slotA.legs, currentPrice), [slotA.legs, currentPrice]);
-  const analysisB = useMemo(() => analyzeStrategy(slotB.legs, currentPrice), [slotB.legs, currentPrice]);
+export default function StrategyComparison({ slotA, slotB, currentPrice, quote, onClear }) {
+  const [analysisA, setAnalysisA] = useState(null);
+  const [analysisB, setAnalysisB] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+
+  const fetchBoth = useCallback(async () => {
+    if (!slotA?.legs?.length || !slotB?.legs?.length || !currentPrice) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const [dataA, dataB] = await Promise.all([
+        analyzeStrategyAPI(buildPayload(slotA.legs, currentPrice, quote)),
+        analyzeStrategyAPI(buildPayload(slotB.legs, currentPrice, quote)),
+      ]);
+      setAnalysisA(dataA);
+      setAnalysisB(dataB);
+    } catch (err) {
+      setError(err.message);
+      setAnalysisA(null);
+      setAnalysisB(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [slotA, slotB, currentPrice, quote]);
+
+  useEffect(() => {
+    fetchBoth();
+  }, [fetchBoth]);
+
+  if (loading) {
+    return (
+      <div className="comparison-section">
+        <h2>Strategy Comparison</h2>
+        <div className="loading"><span className="spinner" /> Computing comparison...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="comparison-section">
+        <h2>Strategy Comparison</h2>
+        <div className="error-msg">{error}</div>
+      </div>
+    );
+  }
 
   if (!analysisA || !analysisB) return null;
 
-  // Merge data into one array for overlaid chart
+  const curveA = analysisA.curves?.expiration || [];
+  const curveB = analysisB.curves?.expiration || [];
+
   const mergedData = useMemo(() => {
-    const allPrices = new Set();
-    analysisA.data.forEach((d) => allPrices.add(d.price));
-    analysisB.data.forEach((d) => allPrices.add(d.price));
+    const mapA = new Map(curveA.map((d) => [d.price, d.pl]));
+    const mapB = new Map(curveB.map((d) => [d.price, d.pl]));
+    const allPrices = new Set([...mapA.keys(), ...mapB.keys()]);
     const sorted = [...allPrices].sort((a, b) => a - b);
-
-    const mapA = new Map(analysisA.data.map((d) => [d.price, d.pl]));
-    const mapB = new Map(analysisB.data.map((d) => [d.price, d.pl]));
-
     return sorted.map((price) => ({
       price,
       plA: mapA.get(price) ?? null,
       plB: mapB.get(price) ?? null,
     }));
-  }, [analysisA, analysisB]);
+  }, [curveA, curveB]);
 
   const metrics = [
     {
       label: 'Max Profit',
-      a: isFinite(analysisA.maxProfit) ? `$${fmt(analysisA.maxProfit)}` : 'Unlimited',
-      b: isFinite(analysisB.maxProfit) ? `$${fmt(analysisB.maxProfit)}` : 'Unlimited',
+      a: analysisA.max_profit != null ? `$${fmt(analysisA.max_profit)}` : 'Unlimited',
+      b: analysisB.max_profit != null ? `$${fmt(analysisB.max_profit)}` : 'Unlimited',
     },
     {
       label: 'Max Loss',
-      a: isFinite(analysisA.maxLoss) ? `$${fmt(analysisA.maxLoss)}` : 'Unlimited',
-      b: isFinite(analysisB.maxLoss) ? `$${fmt(analysisB.maxLoss)}` : 'Unlimited',
+      a: analysisA.max_loss != null ? `$${fmt(analysisA.max_loss)}` : 'Unlimited',
+      b: analysisB.max_loss != null ? `$${fmt(analysisB.max_loss)}` : 'Unlimited',
     },
     {
       label: 'Breakevens',
-      a: analysisA.breakevens.map((be) => `$${fmt(be)}`).join(', ') || '—',
-      b: analysisB.breakevens.map((be) => `$${fmt(be)}`).join(', ') || '—',
+      a: (analysisA.breakevens || []).map((be) => `$${fmt(be)}`).join(', ') || '—',
+      b: (analysisB.breakevens || []).map((be) => `$${fmt(be)}`).join(', ') || '—',
     },
     {
       label: 'Net Premium',
-      a: `${analysisA.netPremium >= 0 ? 'Credit' : 'Debit'} $${fmt(Math.abs(analysisA.netPremium))}`,
-      b: `${analysisB.netPremium >= 0 ? 'Credit' : 'Debit'} $${fmt(Math.abs(analysisB.netPremium))}`,
+      a: `${analysisA.net_premium >= 0 ? 'Credit' : 'Debit'} $${fmt(Math.abs(analysisA.net_premium))}`,
+      b: `${analysisB.net_premium >= 0 ? 'Credit' : 'Debit'} $${fmt(Math.abs(analysisB.net_premium))}`,
+    },
+    {
+      label: 'Capital Required',
+      a: `$${fmt(analysisA.capital_required)}`,
+      b: `$${fmt(analysisB.capital_required)}`,
     },
     {
       label: 'Risk / Reward',
-      a: analysisA.riskReward != null ? `1 : ${analysisA.riskReward.toFixed(2)}` : '—',
-      b: analysisB.riskReward != null ? `1 : ${analysisB.riskReward.toFixed(2)}` : '—',
+      a: analysisA.risk_reward != null ? `1 : ${analysisA.risk_reward.toFixed(2)}` : '—',
+      b: analysisB.risk_reward != null ? `1 : ${analysisB.risk_reward.toFixed(2)}` : '—',
+    },
+    {
+      label: 'Prob. of Profit',
+      a: analysisA.pop?.value != null ? `${analysisA.pop.value.toFixed(1)}%` : '—',
+      b: analysisB.pop?.value != null ? `${analysisB.pop.value.toFixed(1)}%` : '—',
     },
   ];
 

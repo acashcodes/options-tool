@@ -50,8 +50,19 @@ class NewsletterService:
             logger.info("Skipping duplicate message_id: %s", parsed.message_id)
             return None
 
-        # Extract relevance
-        body = parsed.text_body or parsed.html_body
+        # Extract relevance — prefer cleaned text, fall back to HTML→text conversion
+        body = parsed.text_body
+        if not body or len(body.strip()) < 50:
+            # text/plain was empty or too short; convert HTML
+            if parsed.html_body:
+                from .parser import _html_to_text, _normalize_text
+                body = _normalize_text(_html_to_text(parsed.html_body))
+        if not body:
+            body = parsed.html_body  # last resort
+        logger.info(
+            "Processing %s: text_body=%d chars, html_body=%d chars, using_body=%d chars",
+            parsed.subject[:50], len(parsed.text_body), len(parsed.html_body), len(body),
+        )
         relevance = extract_relevance(body, portfolio_tickers, watchlist_tickers)
 
         # Generate headline

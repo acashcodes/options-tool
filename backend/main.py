@@ -1,7 +1,13 @@
 import logging
+from pathlib import Path
+
 import uvicorn
+from dotenv import load_dotenv
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+
+# Load .env from repo root (one level up from backend/)
+load_dotenv(Path(__file__).resolve().parent.parent / ".env")
 
 from data_provider import YFinanceProvider
 from routes.market import create_market_routes

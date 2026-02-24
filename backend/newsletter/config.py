@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import os
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import List
 
 
@@ -40,7 +41,7 @@ def load_config() -> NewsletterConfig:
         from_allowlist=allowlist,
         use_idle=os.environ.get("NEWSLETTER_USE_IDLE", "true").lower() == "true",
         poll_seconds=int(os.environ.get("NEWSLETTER_POLL_SECONDS", "30")),
-        db_path=os.environ.get("NEWSLETTER_DB_PATH", "backend/data/newsletter.db"),
+        db_path=os.environ.get("NEWSLETTER_DB_PATH", str(Path(__file__).resolve().parent.parent / "data" / "newsletter.db")),
         encryption_key=os.environ.get("NEWSLETTER_ENCRYPTION_KEY", ""),
         openai_api_key=os.environ.get("OPENAI_API_KEY", ""),
         openai_model=os.environ.get("OPENAI_MODEL", "gpt-4o"),

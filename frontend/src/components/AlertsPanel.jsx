@@ -52,7 +52,11 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
       .finally(() => setLoading(false));
   }
 
-  useEffect(() => { fetchAlerts(); }, []);
+  useEffect(() => {
+    fetchAlerts();
+    const interval = setInterval(fetchAlerts, 45000);
+    return () => clearInterval(interval);
+  }, []);
 
   function handleDismiss(e, alertId) {
     e.stopPropagation();

@@ -19,8 +19,13 @@ const TEMPLATES = [
   },
   {
     label: 'Covered Call', value: 'covered_call',
-    desc: 'Income strategy for stockholders. Sell a call against shares you own. Caps your upside but generates premium income.',
-    legs: 'Sell 1 OTM call (assumes you own 100 shares)',
+    desc: 'Income strategy: Buy 100 shares and sell a call against them. Caps your upside but generates premium income.',
+    legs: 'Buy 100 shares + Sell 1 OTM call',
+  },
+  {
+    label: 'Collar', value: 'collar',
+    desc: 'Protective strategy: Buy 100 shares, buy a put for downside protection, sell a call to offset the put cost.',
+    legs: 'Buy 100 shares + Buy 1 OTM put + Sell 1 OTM call',
   },
   {
     label: 'Bull Call Spread', value: 'bull_call_spread',
@@ -121,7 +126,21 @@ function generateTemplateLegs(template, currentPrice, chain, expiration) {
     }
     case 'covered_call': {
       const c = nearestStrike(calls, otmCallTarget);
-      return c ? [leg('Call', c.strike, 'sell', c)] : [];
+      if (!c) return [];
+      return [
+        { instrument: 'stock', action: 'buy', quantity: 100, entry_price: currentPrice, premium: currentPrice },
+        leg('Call', c.strike, 'sell', c),
+      ];
+    }
+    case 'collar': {
+      const c = nearestStrike(calls, otmCallTarget);
+      const p = nearestStrike(puts, otmPutTarget);
+      if (!c || !p) return [];
+      return [
+        { instrument: 'stock', action: 'buy', quantity: 100, entry_price: currentPrice, premium: currentPrice },
+        leg('Put', p.strike, 'buy', p),
+        leg('Call', c.strike, 'sell', c),
+      ];
     }
     case 'bull_call_spread': {
       const buy = nearestStrike(calls, atm);
@@ -308,7 +327,8 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
   }
 
   function updateQuantity(index, qty) {
-    const q = Math.max(1, Math.min(100, qty));
+    const isStock = legs[index]?.instrument === 'stock';
+    const q = Math.max(1, Math.min(isStock ? 10000 : 100, qty));
     const updated = legs.map((leg, i) =>
       i === index ? { ...leg, quantity: q } : leg
     );
@@ -320,7 +340,24 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
     setTemplate('custom');
   }
 
+  function addStockLeg() {
+    const stockLeg = {
+      instrument: 'stock',
+      action: 'buy',
+      quantity: 100,
+      entry_price: currentPrice || 0,
+      premium: currentPrice || 0,
+    };
+    onLegsChange([...legs, stockLeg]);
+    setTemplate('custom');
+  }
+
   const netPremium = legs.reduce((sum, leg) => {
+    if (leg.instrument === 'stock') {
+      // Stock: buy = cash outflow, sell = inflow
+      const cost = (leg.entry_price || leg.premium || 0) * leg.quantity;
+      return sum + (leg.action === 'buy' ? -cost : cost);
+    }
     const cost = (leg.premium || 0) * leg.quantity * 100;
     return sum + (leg.action === 'buy' ? -cost : cost);
   }, 0);
@@ -341,6 +378,7 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
               <option key={t.value} value={t.value}>{t.label}</option>
             ))}
           </select>
+          <button className="btn-ghost" onClick={addStockLeg}>+ Stock Leg</button>
           {legs.length > 0 && (
             <button className="btn-ghost" onClick={clearAll}>Clear All</button>
           )}
@@ -387,17 +425,28 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
               </thead>
               <tbody>
                 {legs.map((leg, i) => {
-                  const cost = (leg.premium || 0) * leg.quantity * 100;
-                  const costSigned = leg.action === 'buy' ? -cost : cost;
+                  const isStock = leg.instrument === 'stock';
+                  let cost, costSigned;
+                  if (isStock) {
+                    cost = (leg.entry_price || leg.premium || 0) * leg.quantity;
+                    costSigned = leg.action === 'buy' ? -cost : cost;
+                  } else {
+                    cost = (leg.premium || 0) * leg.quantity * 100;
+                    costSigned = leg.action === 'buy' ? -cost : cost;
+                  }
                   return (
                     <tr key={i}>
                       <td>
-                        <span className={`leg-type-badge ${leg.type === 'Call' ? 'type-call' : 'type-put'}`}>
-                          {leg.type}
-                        </span>
+                        {isStock ? (
+                          <span className="leg-type-badge type-stock">Stock</span>
+                        ) : (
+                          <span className={`leg-type-badge ${leg.type === 'Call' ? 'type-call' : 'type-put'}`}>
+                            {leg.type}
+                          </span>
+                        )}
                       </td>
-                      <td className="mono">${fmt(leg.strike)}</td>
-                      <td className="mono">{leg.expiration}</td>
+                      <td className="mono">{isStock ? '\u2014' : `$${fmt(leg.strike)}`}</td>
+                      <td className="mono">{isStock ? '\u2014' : leg.expiration}</td>
                       <td>
                         <button
                           className={`action-toggle ${leg.action}`}
@@ -410,13 +459,15 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
                         <input
                           type="number"
                           min={1}
-                          max={100}
+                          max={isStock ? 10000 : 100}
                           value={leg.quantity}
                           onChange={(e) => updateQuantity(i, parseInt(e.target.value) || 1)}
                           className="qty-input"
                         />
                       </td>
-                      <td className="mono">${fmt(leg.premium)}</td>
+                      <td className="mono">
+                        {isStock ? `$${fmt(leg.entry_price || leg.premium)}` : `$${fmt(leg.premium)}`}
+                      </td>
                       <td className={`mono ${costSigned >= 0 ? 'text-green' : 'text-red'}`}>
                         {costSigned >= 0 ? '+' : ''}{fmt(costSigned)}
                       </td>

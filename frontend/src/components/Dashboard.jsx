@@ -3,6 +3,7 @@ import { getEnrichedPortfolio } from '../api/client';
 import ManagePortfolioModal from './ManagePortfolioModal';
 import HoldingsTable from './HoldingsTable';
 import PortfolioCharts from './PortfolioCharts';
+import RiskPanel from './RiskPanel';
 import MarketOverviewBar from './MarketOverviewBar';
 import AlertsPanel from './AlertsPanel';
 import WatchlistTable from './WatchlistTable';
@@ -268,6 +269,9 @@ export default function Dashboard({ onNavigateToAnalysis }) {
             concentration={m.concentration}
             sectorBreakdown={m.sector_breakdown}
           />
+
+          {/* Risk Metrics */}
+          <RiskPanel />
         </>
       )}
 

@@ -68,10 +68,14 @@ def parse_email(raw_bytes: bytes) -> ParsedEmail:
         elif ct == "text/html":
             html_body = content
 
+    # If no plain text, convert HTML to text
+    if not text_body and html_body:
+        text_body = _html_to_text(html_body)
+
     # Normalize text
     text_body = _normalize_text(text_body)
 
-    # Extract web URL
+    # Extract web URL (search HTML too for link extraction)
     web_url = None
     search_text = text_body or html_body
     m = _WEB_URL_RE.search(search_text)
@@ -107,9 +111,57 @@ def _parse_date(date_str: str) -> str:
         return datetime.now(timezone.utc).isoformat()
 
 
+def _html_to_text(html: str) -> str:
+    """Strip HTML tags to get plain text."""
+    # Remove style and script blocks
+    text = re.sub(r"<style[^>]*>.*?</style>", "", html, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r"<script[^>]*>.*?</script>", "", text, flags=re.DOTALL | re.IGNORECASE)
+    # Convert <br>, <p>, <div>, <li> to newlines
+    text = re.sub(r"<br\s*/?>", "\n", text, flags=re.IGNORECASE)
+    text = re.sub(r"</(p|div|tr|li|h[1-6])>", "\n", text, flags=re.IGNORECASE)
+    # Strip all remaining tags
+    text = re.sub(r"<[^>]+>", "", text)
+    # Decode common HTML entities
+    import html as html_mod
+    text = html_mod.unescape(text)
+    # Collapse excessive blank lines
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+_FWD_HEADER_RE = re.compile(
+    r"^-{5,}\s*Forwarded message\s*-{5,}.*?\n\n",
+    re.DOTALL | re.IGNORECASE,
+)
+
+
 def _normalize_text(text: str) -> str:
     """Normalize whitespace and strip unsubscribe footer."""
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Strip Gmail forwarding header
+    text = _FWD_HEADER_RE.sub("", text)
+    # Strip zero-width / invisible unicode junk (common in Substack emails)
+    text = re.sub(r"[\u034f\u00ad\u2007\u200b\u200c\u200d\ufeff]+", "", text)
+    # Strip any remaining HTML tags that leaked into text/plain
+    if "<div" in text or "<br" in text or "<table" in text:
+        text = _html_to_text(text)
+    # Strip Substack/email boilerplate lines (tracking URLs, nav chrome)
+    cleaned_lines = []
+    for line in text.split("\n"):
+        stripped = line.strip()
+        # Skip bare URL lines (tracking links, images)
+        if stripped.startswith("<http") and stripped.endswith(">"):
+            continue
+        # Skip "Author Name <url>" byline lines
+        if re.match(r"^.{1,40}\s+<https?://", stripped) and stripped.endswith(">"):
+            continue
+        # Skip Substack chrome lines
+        if stripped in ("View in browser", "READ IN APP", "Paid", "Share"):
+            continue
+        if stripped == "\u2219" or stripped == "\u2022":  # lone bullet chars
+            continue
+        cleaned_lines.append(line)
+    text = "\n".join(cleaned_lines)
     for pattern in _UNSUB_PATTERNS:
         text = pattern.sub("", text)
     return text.strip()

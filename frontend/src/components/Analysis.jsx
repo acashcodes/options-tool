@@ -140,7 +140,7 @@ export default function Analysis({ preloadTicker, onTickerLoaded }) {
         />
       </div>
       {showPayoff && legs.length > 0 && (
-        <PayoffDiagram legs={legs} currentPrice={quote.price} />
+        <PayoffDiagram legs={legs} currentPrice={quote.price} quote={quote} />
       )}
       <StrategyRecommender
         quote={quote}
@@ -151,6 +151,7 @@ export default function Analysis({ preloadTicker, onTickerLoaded }) {
           slotA={slotA}
           slotB={slotB}
           currentPrice={quote.price}
+          quote={quote}
           onClear={handleClearComparison}
         />
       )}
