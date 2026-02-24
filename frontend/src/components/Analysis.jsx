@@ -8,6 +8,8 @@ import PayoffDiagram from './PayoffDiagram';
 import StrategyComparison from './StrategyComparison';
 import StrategyRecommender from './StrategyRecommender';
 import { getOptionsChain } from '../api/client';
+import AnalysisContextCards from './AnalysisContextCards';
+import OptionsAnalytics from './OptionsAnalytics';
 
 export default function Analysis({ preloadTicker, onTickerLoaded }) {
   const [quote, setQuote] = useState(null);
@@ -94,12 +96,7 @@ export default function Analysis({ preloadTicker, onTickerLoaded }) {
     return (
       <div className="analysis-page">
         <div className="search-landing">
-          <div className="search-landing-brand">
-            <h1>
-              <span className="gradient-text">Analyze</span> any option.
-            </h1>
-            <p>Enter a ticker to view live options chains, IV data, and more.</p>
-          </div>
+          <AnalysisContextCards />
           <TickerSearch
             key={effectivePre || 'default'}
             preloadTicker={effectivePre}
@@ -121,6 +118,7 @@ export default function Analysis({ preloadTicker, onTickerLoaded }) {
         <TickerSearch preloadTicker={null} onQuoteLoaded={handleQuoteLoaded} />
       </div>
       <StockInfoBar quote={quote} />
+      <OptionsAnalytics symbol={quote.symbol} />
       <StockChart symbol={quote.symbol} />
       <OptionsChain
         symbol={quote.symbol}

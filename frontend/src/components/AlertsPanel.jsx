@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   getDashboardAlerts, dismissAlert, restoreAlert,
   clearDismissedAlerts, updateAlertThresholds, getDashboardNews,
+  getDashboardNewsGrouped,
 } from '../api/client';
 
 const SEVERITY_ICONS = {
@@ -28,9 +29,12 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
   const [showDismissed, setShowDismissed] = useState(false);
   const [showSettings, setShowSettings] = useState(false);
   const [news, setNews] = useState([]);
+  const [newsGrouped, setNewsGrouped] = useState(null); // { groups: [], ungrouped: [] }
   const [newsLoading, setNewsLoading] = useState(false);
+  const [newsView, setNewsView] = useState('grouped'); // 'grouped' or 'chronological'
   const [showAllAlerts, setShowAllAlerts] = useState(false);
   const [showAllNews, setShowAllNews] = useState(false);
+  const [expandedGroups, setExpandedGroups] = useState({}); // { ticker: bool }
 
   function fetchAlerts() {
     getDashboardAlerts()
@@ -45,19 +49,26 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
       .finally(() => setLoading(false));
   }
 
-  // Fetch news on mount (show by default now)
+  // Fetch both flat and grouped news
   function fetchNews() {
     setNewsLoading(true);
-    getDashboardNews()
-      .then((data) => setNews(data.articles || []))
-      .catch(() => {})
-      .finally(() => setNewsLoading(false));
+    Promise.all([
+      getDashboardNews().catch(() => ({ articles: [] })),
+      getDashboardNewsGrouped().catch(() => ({ groups: [], ungrouped: [] })),
+    ]).then(([flatData, groupedData]) => {
+      setNews(flatData.articles || []);
+      setNewsGrouped(groupedData);
+    }).finally(() => setNewsLoading(false));
   }
 
   useEffect(() => {
     fetchAlerts();
     fetchNews();
   }, []);
+
+  function toggleGroupExpanded(ticker) {
+    setExpandedGroups(prev => ({ ...prev, [ticker]: !prev[ticker] }));
+  }
 
   function handleDismiss(e, alertId) {
     e.stopPropagation();
@@ -182,42 +193,41 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
       )}
 
 
-      {/* === News Feed (visible by default) === */}
+      {/* === News Feed with Grouped / Chronological toggle === */}
       <div className="news-section-block">
-        <div className="news-section-label">Latest News</div>
+        <div className="news-section-header">
+          <div className="news-section-label">Latest News</div>
+          <div className="news-view-toggle">
+            <button
+              className={`news-toggle-btn ${newsView === 'grouped' ? 'active' : ''}`}
+              onClick={() => setNewsView('grouped')}
+            >
+              Grouped
+            </button>
+            <button
+              className={`news-toggle-btn ${newsView === 'chronological' ? 'active' : ''}`}
+              onClick={() => setNewsView('chronological')}
+            >
+              Chronological
+            </button>
+          </div>
+        </div>
         {newsLoading ? (
           <div className="loading"><span className="spinner" /> Loading news...</div>
-        ) : news.length === 0 ? (
-          <div className="alerts-empty">No news available.</div>
+        ) : newsView === 'grouped' ? (
+          <GroupedNewsView
+            grouped={newsGrouped}
+            expandedGroups={expandedGroups}
+            onToggleGroup={toggleGroupExpanded}
+            showAll={showAllNews}
+            onToggleShowAll={() => setShowAllNews(!showAllNews)}
+          />
         ) : (
-          <>
-            <div className="news-list">
-              {(showAllNews ? news : news.slice(0, 5)).map((article, i) => (
-                <a
-                  key={i}
-                  className="news-item"
-                  href={article.link}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  <span className="news-ticker">{article.ticker}</span>
-                  <span className="news-title">{article.title}</span>
-                  <span className="news-meta">
-                    {article.publisher}
-                    {article.published && ` \u00B7 ${formatTimeAgo(article.published)}`}
-                  </span>
-                </a>
-              ))}
-            </div>
-            {news.length > 5 && (
-              <button
-                className="section-show-more"
-                onClick={() => setShowAllNews(!showAllNews)}
-              >
-                {showAllNews ? 'Show less' : `Show all ${news.length} articles`}
-              </button>
-            )}
-          </>
+          <ChronologicalNewsView
+            articles={news}
+            showAll={showAllNews}
+            onToggleShowAll={() => setShowAllNews(!showAllNews)}
+          />
         )}
       </div>
 
@@ -295,6 +305,114 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
   );
 }
 
+
+function GroupedNewsView({ grouped, expandedGroups, onToggleGroup, showAll, onToggleShowAll }) {
+  if (!grouped || (grouped.groups.length === 0 && grouped.ungrouped.length === 0)) {
+    return <div className="alerts-empty">No news available.</div>;
+  }
+
+  const { groups, ungrouped } = grouped;
+  const visibleUngrouped = showAll ? ungrouped : ungrouped.slice(0, 3);
+  const totalArticles = groups.reduce((s, g) => s + g.count, 0) + ungrouped.length;
+
+  return (
+    <div className="news-grouped-view">
+      {groups.map(group => {
+        const isExpanded = expandedGroups[group.ticker];
+        return (
+          <div key={group.ticker} className="news-group-card">
+            <div className="news-group-header" onClick={() => onToggleGroup(group.ticker)}>
+              <span className="news-group-ticker">{group.ticker}</span>
+              <span className="news-group-count">{group.count} articles</span>
+              <span className={`news-group-chevron ${isExpanded ? 'expanded' : ''}`}>&#9662;</span>
+            </div>
+            {group.summary && (
+              <div className="news-group-summary">{group.summary}</div>
+            )}
+            {isExpanded && (
+              <div className="news-group-articles">
+                {group.articles.map((article, i) => (
+                  <a
+                    key={i}
+                    className="news-item news-item-nested"
+                    href={article.link}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    <span className="news-title">{article.title}</span>
+                    <span className="news-meta">
+                      {article.publisher}
+                      {article.published && ` · ${formatTimeAgo(article.published)}`}
+                    </span>
+                  </a>
+                ))}
+              </div>
+            )}
+          </div>
+        );
+      })}
+      {visibleUngrouped.length > 0 && (
+        <div className="news-list">
+          {visibleUngrouped.map((article, i) => (
+            <a
+              key={i}
+              className="news-item"
+              href={article.link}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <span className="news-ticker">{article.ticker}</span>
+              <span className="news-title">{article.title}</span>
+              <span className="news-meta">
+                {article.publisher}
+                {article.published && ` · ${formatTimeAgo(article.published)}`}
+              </span>
+            </a>
+          ))}
+        </div>
+      )}
+      {totalArticles > 5 && (
+        <button className="section-show-more" onClick={onToggleShowAll}>
+          {showAll ? 'Show less' : `Show all ${totalArticles} articles`}
+        </button>
+      )}
+    </div>
+  );
+}
+
+function ChronologicalNewsView({ articles, showAll, onToggleShowAll }) {
+  if (!articles || articles.length === 0) {
+    return <div className="alerts-empty">No news available.</div>;
+  }
+  const visible = showAll ? articles : articles.slice(0, 5);
+  return (
+    <>
+      <div className="news-list">
+        {visible.map((article, i) => (
+          <a
+            key={i}
+            className="news-item"
+            href={article.link}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span className="news-ticker">{article.ticker}</span>
+            <span className="news-title">{article.title}</span>
+            <span className="news-meta">
+              {article.publisher}
+              {article.published && ` · ${formatTimeAgo(article.published)}`}
+            </span>
+          </a>
+        ))}
+      </div>
+      {articles.length > 5 && (
+        <button className="section-show-more" onClick={onToggleShowAll}>
+          {showAll ? 'Show less' : `Show all ${articles.length} articles`}
+        </button>
+      )}
+    </>
+  );
+}
 
 function ThresholdSettings({ thresholds, onSave, onClose }) {
   const [vals, setVals] = useState({ ...thresholds });

@@ -169,6 +169,10 @@ export function getDashboardNews() {
   return request('/dashboard/news');
 }
 
+export function getDashboardNewsGrouped() {
+  return request('/dashboard/news/grouped');
+}
+
 // ===== Newsletter =====
 
 export function getNewsletterLatest() {
@@ -217,6 +221,12 @@ export function compareValuations(symbols) {
 
 export function getTechnicals(symbol) {
   return request(`/technicals/${encodeURIComponent(symbol)}`);
+}
+
+// ===== Options Analytics =====
+
+export function getOptionsAnalytics(symbol) {
+  return request(`/options/analytics/${encodeURIComponent(symbol)}`);
 }
 
 // ===== Strategy Analysis =====

@@ -364,6 +364,49 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
 
   const isDebit = netPremium < 0;
 
+  // Compute strategy summary metrics
+  let maxProfit = null, maxLoss = null, breakevens = [];
+  if (legs.length > 0 && currentPrice) {
+    const optionLegs = legs.filter(l => !l.instrument || l.instrument !== 'stock');
+    const stockLegs = legs.filter(l => l.instrument === 'stock');
+
+    // For single-leg or simple spreads, compute approximate max profit/loss
+    if (optionLegs.length > 0) {
+      // Max loss for debit strategies = net premium paid
+      if (isDebit && stockLegs.length === 0) {
+        maxLoss = Math.abs(netPremium);
+      }
+      // Max profit for credit strategies = net premium received
+      if (!isDebit && stockLegs.length === 0) {
+        maxProfit = Math.abs(netPremium);
+      }
+
+      // For vertical spreads (2 legs, same type, same expiry)
+      if (optionLegs.length === 2 && optionLegs[0].type === optionLegs[1].type &&
+          optionLegs[0].expiration === optionLegs[1].expiration) {
+        const spread = Math.abs(optionLegs[0].strike - optionLegs[1].strike) * 100;
+        if (isDebit) {
+          maxProfit = spread - Math.abs(netPremium);
+          maxLoss = Math.abs(netPremium);
+        } else {
+          maxProfit = Math.abs(netPremium);
+          maxLoss = spread - Math.abs(netPremium);
+        }
+      }
+    }
+
+    // Simple breakeven for single option
+    if (optionLegs.length === 1 && stockLegs.length === 0) {
+      const leg = optionLegs[0];
+      const prem = (leg.premium || 0);
+      if (leg.type === 'Call') {
+        breakevens = [+(leg.strike + (leg.action === 'buy' ? prem : -prem)).toFixed(2)];
+      } else {
+        breakevens = [+(leg.strike - (leg.action === 'buy' ? prem : -prem)).toFixed(2)];
+      }
+    }
+  }
+
   return (
     <div className="strategy-builder">
       <div className="builder-header">
@@ -483,20 +526,38 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
             </table>
           </div>
 
-          <div className="builder-footer">
-            <div className="net-premium">
-              <span className="net-label">
-                Net {isDebit ? 'Debit' : 'Credit'}
-              </span>
-              <span className={`net-value ${isDebit ? 'text-red' : 'text-green'}`}>
-                ${fmt(Math.abs(netPremium))}
-              </span>
+          <div className="strategy-sticky-bar">
+            <div className="sticky-bar-metrics">
+              <div className="sticky-metric">
+                <span className="sticky-label">Net {isDebit ? 'Debit' : 'Credit'}</span>
+                <span className={`sticky-value ${isDebit ? 'text-red' : 'text-green'}`}>
+                  ${fmt(Math.abs(netPremium))}
+                </span>
+              </div>
+              {maxProfit != null && (
+                <div className="sticky-metric">
+                  <span className="sticky-label">Max Profit</span>
+                  <span className="sticky-value text-green">${fmt(maxProfit)}</span>
+                </div>
+              )}
+              {maxLoss != null && (
+                <div className="sticky-metric">
+                  <span className="sticky-label">Max Loss</span>
+                  <span className="sticky-value text-red">${fmt(maxLoss)}</span>
+                </div>
+              )}
+              {breakevens.length > 0 && (
+                <div className="sticky-metric">
+                  <span className="sticky-label">Breakeven</span>
+                  <span className="sticky-value">${breakevens.join(' / $')}</span>
+                </div>
+              )}
             </div>
-            <div className="builder-footer-right">
+            <div className="sticky-bar-actions">
               {onSaveToSlot && legs.length > 0 && (
                 <div className="save-slot-btns">
-                  <button className="btn-slot" onClick={() => onSaveToSlot('A')}>Save as A</button>
-                  <button className="btn-slot" onClick={() => onSaveToSlot('B')}>Save as B</button>
+                  <button className="btn-slot" onClick={() => onSaveToSlot('A')}>A</button>
+                  <button className="btn-slot" onClick={() => onSaveToSlot('B')}>B</button>
                 </div>
               )}
               <button className="btn-analyze" onClick={onAnalyze} disabled={legs.length === 0}>

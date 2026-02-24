@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import logging
+import os
+import time
 from collections import defaultdict
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import date, datetime
@@ -17,6 +20,11 @@ import alerts_store
 
 if TYPE_CHECKING:
     from newsletter.service import NewsletterService
+
+logger = logging.getLogger(__name__)
+
+# Simple in-memory cache for grouped news (5 min TTL)
+_grouped_news_cache: dict[str, Any] = {"data": None, "ts": 0}
 
 
 class WatchlistAdd(BaseModel):
@@ -398,5 +406,150 @@ def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional
 
         unique.sort(key=lambda a: a.get("published", ""), reverse=True)
         return {"articles": unique[:20]}
+
+    # ---- Grouped News (AI-powered condensation) ----
+
+    def _condense_articles_openai(ticker: str, articles: list[dict]) -> dict | None:
+        """Use OpenAI to condense multiple articles about the same ticker."""
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            return None
+
+        try:
+            from openai import OpenAI
+        except ImportError:
+            return None
+
+        titles = "\n".join(f"- {a['title']}" for a in articles if a.get("title"))
+        if not titles:
+            return None
+
+        prompt = (
+            f"Condense these {len(articles)} news articles about {ticker} into 2-3 sentences. "
+            "Focus on: (1) what happened, (2) why it matters, (3) implications for the stock. "
+            "Be specific and actionable. No filler phrases.\n\n"
+            f"Articles:\n{titles}"
+        )
+
+        try:
+            client = OpenAI(api_key=api_key, timeout=20)
+            model = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
+            response = client.responses.create(model=model, input=prompt)
+            summary = response.output_text.strip()
+            return summary if summary else None
+        except Exception as exc:
+            logger.warning("OpenAI news condensation failed for %s: %s", ticker, exc)
+            return None
+
+    @router.get("/news/grouped")
+    def get_news_grouped():
+        """Fetch news, group by ticker, and condense with AI summaries."""
+        global _grouped_news_cache
+
+        # Return cached data if fresh (5 min TTL)
+        now = time.time()
+        if _grouped_news_cache["data"] is not None and (now - _grouped_news_cache["ts"]) < 300:
+            return _grouped_news_cache["data"]
+
+        # 1. Fetch flat news (reuse existing logic)
+        positions = port_store.load_positions()
+        watchlist_tickers = wl_store.load_watchlist()
+        portfolio_tickers = list({p.ticker.upper() for p in positions})
+        all_tickers = list(set(portfolio_tickers + watchlist_tickers))
+
+        if not all_tickers:
+            result = {"groups": [], "ungrouped": []}
+            _grouped_news_cache = {"data": result, "ts": now}
+            return result
+
+        articles: list[dict[str, Any]] = []
+
+        def fetch_news(symbol: str) -> list[dict[str, Any]]:
+            try:
+                import yfinance as yf
+                t = yf.Ticker(symbol)
+                news = t.news or []
+                result = []
+                for item in news[:5]:
+                    content = item.get("content", {})
+                    if not content:
+                        continue
+                    publisher = content.get("provider", {}).get("displayName", "")
+                    pub_lower = publisher.lower().strip()
+                    if any(blocked in pub_lower for blocked in _BLOCKED_PUBLISHERS):
+                        continue
+                    pub = content.get("pubDate", "")
+                    result.append({
+                        "ticker": symbol,
+                        "title": content.get("title", ""),
+                        "publisher": publisher,
+                        "link": content.get("canonicalUrl", {}).get("url", ""),
+                        "published": pub,
+                        "type": content.get("contentType", ""),
+                    })
+                return result
+            except Exception:
+                return []
+
+        with ThreadPoolExecutor(max_workers=6) as executor:
+            futures = [executor.submit(fetch_news, t) for t in all_tickers[:10]]
+            for fut in as_completed(futures):
+                articles.extend(fut.result())
+
+        # Deduplicate by title
+        seen_titles: set[str] = set()
+        unique: list[dict] = []
+        for a in articles:
+            if a["title"] and a["title"] not in seen_titles:
+                seen_titles.add(a["title"])
+                unique.append(a)
+        unique.sort(key=lambda a: a.get("published", ""), reverse=True)
+
+        # 2. Group by ticker
+        by_ticker: dict[str, list[dict]] = defaultdict(list)
+        for a in unique:
+            by_ticker[a["ticker"]].append(a)
+
+        # 3. For tickers with 2+ articles, condense with AI
+        groups: list[dict] = []
+        ungrouped: list[dict] = []
+
+        # Run AI condensation in parallel for eligible groups
+        ticker_groups = {t: arts for t, arts in by_ticker.items() if len(arts) >= 2}
+        single_articles = [arts[0] for t, arts in by_ticker.items() if len(arts) == 1]
+
+        ai_results: dict[str, str | None] = {}
+        if ticker_groups:
+            def condense_one(ticker: str, arts: list[dict]) -> tuple[str, str | None]:
+                return ticker, _condense_articles_openai(ticker, arts)
+
+            with ThreadPoolExecutor(max_workers=4) as executor:
+                futs = {
+                    executor.submit(condense_one, t, arts): t
+                    for t, arts in ticker_groups.items()
+                }
+                for fut in as_completed(futs):
+                    t, summary = fut.result()
+                    ai_results[t] = summary
+
+        for ticker, arts in ticker_groups.items():
+            summary = ai_results.get(ticker)
+            groups.append({
+                "ticker": ticker,
+                "summary": summary,  # None if AI unavailable — frontend shows fallback
+                "count": len(arts),
+                "articles": arts,
+            })
+
+        # Sort groups: most articles first
+        groups.sort(key=lambda g: g["count"], reverse=True)
+
+        # Ungrouped = single-article tickers
+        ungrouped = single_articles
+        ungrouped.sort(key=lambda a: a.get("published", ""), reverse=True)
+
+        result = {"groups": groups, "ungrouped": ungrouped}
+        _grouped_news_cache = {"data": result, "ts": now}
+        return result
 
     return router
