@@ -35,7 +35,7 @@ function OverviewItem({ label, data, valueClass, suffix, noSign, prefix }) {
   return (
     <div className="market-overview-item">
       <span className="overview-label">{label}</span>
-      <span className={`overview-price ${valueClass || ''}`}>
+      <span className={`overview-price ${valueClass || changeClass}`}>
         {pre}{data.price.toFixed(2)}{suffix || ''}
       </span>
       {data.change != null && (

@@ -181,6 +181,22 @@ def compute_portfolio_beta(
     return round(portfolio_beta, 4)
 
 
+def compute_var_95(port_delta: float, daily_returns: list[float]) -> float | None:
+    """Compute 1-day 95% VaR using parametric method.
+
+    Uses: VaR = abs(port_delta) * daily_vol * 1.645
+    where daily_vol = std(daily_returns)
+    """
+    if not daily_returns or port_delta == 0:
+        return None
+    import numpy as np
+    daily_vol = float(np.std(daily_returns))
+    if daily_vol <= 0:
+        return None
+    var_95 = abs(port_delta) * daily_vol * 1.645
+    return round(var_95, 2)
+
+
 def compute_stress_tests(
     portfolio_delta: float,
     portfolio_gamma: float = 0.0,

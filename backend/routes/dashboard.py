@@ -213,6 +213,8 @@ def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional
                         "type": "iv_high",
                         "ticker": ticker,
                         "message": f"{ticker} IV rank at {iv_rank:.0f}% \u2014 elevated",
+                        "iv_rank": round(iv_rank, 0),
+                        "iv_level": "high",
                         "severity": "info",
                     })
                 elif iv_rank < iv_lo:
@@ -221,6 +223,8 @@ def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional
                         "type": "iv_low",
                         "ticker": ticker,
                         "message": f"{ticker} IV rank at {iv_rank:.0f}% \u2014 depressed",
+                        "iv_rank": round(iv_rank, 0),
+                        "iv_level": "low",
                         "severity": "info",
                     })
 
@@ -254,6 +258,8 @@ def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional
                     "type": "large_move",
                     "ticker": ticker,
                     "message": f"{ticker} moved {abs(cp):.1f}% {direction} today",
+                    "direction": direction,
+                    "change_percent": round(abs(cp), 1),
                     "severity": "warning" if abs(cp) > 5 else "info",
                 })
 
@@ -340,6 +346,11 @@ def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional
         "seeking alpha",
         "tipranks",
         "zacks", "zacks investment research",
+        "gurufocus", "guru focus",
+        "simply wall st", "simplywallst", "simply wall street",
+        "yahoo finance",
+        "barron's", "barrons",
+        "sportico",
     }
 
     @router.get("/news")

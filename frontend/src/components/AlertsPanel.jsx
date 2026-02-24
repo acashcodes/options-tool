@@ -226,17 +226,28 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
         <div className="news-section-block">
           <div className="news-section-label">Big Moves</div>
           <div className="alerts-list">
-            {bigMoves.map(alert => (
-              <div
-                key={alert.id}
-                className={`alert-item alert-${alert.severity}`}
-                onClick={() => onNavigateToAnalysis(alert.ticker)}
-              >
-                <span className="alert-icon">{SEVERITY_ICONS[alert.severity]}</span>
-                <span className="alert-message">{alert.message}</span>
-                <span className="alert-arrow">&rarr;</span>
-              </div>
-            ))}
+            {bigMoves.map(alert => {
+              const moveDir = alert.direction || (alert.message.includes('up') ? 'up' : 'down');
+              const movePct = alert.change_percent != null ? alert.change_percent : '';
+              const moveColor = moveDir === 'up' ? 'color-green' : 'color-red';
+              return (
+                <div
+                  key={alert.id}
+                  className={`alert-item alert-${alert.severity}`}
+                  onClick={() => onNavigateToAnalysis(alert.ticker)}
+                >
+                  <span className="alert-icon">{SEVERITY_ICONS[alert.severity]}</span>
+                  <span className="alert-message">
+                    {alert.ticker} moved{' '}
+                    <span className={moveColor} style={{ fontWeight: 700 }}>
+                      {movePct}% {moveDir}
+                    </span>
+                    {' '}today
+                  </span>
+                  <span className="alert-arrow">&rarr;</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}
@@ -246,18 +257,28 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
         <div className="news-section-block">
           <div className="news-section-label">IV Ranks</div>
           <div className="alerts-list">
-            {ivAlerts.map(alert => (
-              <div
-                key={alert.id}
-                className={`alert-item alert-${alert.severity}`}
-                onClick={() => onNavigateToAnalysis(alert.ticker)}
-              >
-                <span className="alert-icon">{SEVERITY_ICONS[alert.severity]}</span>
-                <span className="alert-type-tag">{TYPE_LABELS[alert.type]}</span>
-                <span className="alert-message">{alert.message}</span>
-                <span className="alert-arrow">&rarr;</span>
-              </div>
-            ))}
+            {ivAlerts.map(alert => {
+              const ivLevel = alert.iv_level || (alert.type === 'iv_high' ? 'high' : 'low');
+              const ivRank = alert.iv_rank != null ? `${alert.iv_rank}%` : '';
+              const ivColor = ivLevel === 'high' ? 'color-red' : 'color-green';
+              const ivLabel = ivLevel === 'high' ? 'elevated' : 'depressed';
+              return (
+                <div
+                  key={alert.id}
+                  className={`alert-item alert-${alert.severity}`}
+                  onClick={() => onNavigateToAnalysis(alert.ticker)}
+                >
+                  <span className="alert-icon">{SEVERITY_ICONS[alert.severity]}</span>
+                  <span className="alert-type-tag">{TYPE_LABELS[alert.type]}</span>
+                  <span className="alert-message">
+                    {alert.ticker} IV rank at{' '}
+                    <span className={ivColor} style={{ fontWeight: 700 }}>{ivRank}</span>
+                    {' '}&mdash; {ivLabel}
+                  </span>
+                  <span className="alert-arrow">&rarr;</span>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

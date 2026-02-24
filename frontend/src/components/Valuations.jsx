@@ -2,6 +2,8 @@ import { useState, useEffect, useMemo, useCallback } from 'react';
 import {
   getValuationsSummary,
   getValuationsPeers,
+  updateValuationsPeers,
+  removeValuationsPeer,
   compareValuations,
 } from '../api/client';
 
@@ -157,6 +159,30 @@ export default function Valuations() {
     }
   }
 
+  async function handleAddPeer(ticker, newPeer) {
+    if (!newPeer || !ticker) return;
+    const currentSymbols = (peersData || []).map(p => p.symbol);
+    const upper = newPeer.toUpperCase().trim();
+    if (currentSymbols.includes(upper)) return;
+    try {
+      await updateValuationsPeers(ticker, [...currentSymbols, upper]);
+      // Refresh peers
+      const data = await getValuationsPeers(ticker);
+      setPeersData(data.peers || []);
+    } catch (err) {
+      console.error('Failed to add peer:', err.message);
+    }
+  }
+
+  async function handleRemovePeer(ticker, peerSymbol) {
+    try {
+      await removeValuationsPeer(ticker, peerSymbol);
+      setPeersData(prev => (prev || []).filter(p => p.symbol !== peerSymbol));
+    } catch (err) {
+      console.error('Failed to remove peer:', err.message);
+    }
+  }
+
   function handleCompareInput(idx, val) {
     setCompareSymbols(prev => {
       const next = [...prev];
@@ -209,7 +235,7 @@ export default function Valuations() {
               className={`val-toggle-btn ${viewMode === 'ttm' ? 'active' : ''}`}
               onClick={() => setViewMode('ttm')}
             >
-              TTM + Forward
+              Trailing 12Ms
             </button>
             <button
               className={`val-toggle-btn ${viewMode === 'quarter' ? 'active' : ''}`}
@@ -273,6 +299,8 @@ export default function Valuations() {
                   onExpand={() => handleExpand(row.symbol)}
                   peersData={expandedTicker === row.symbol ? peersData : null}
                   peersLoading={expandedTicker === row.symbol && peersLoading}
+                  onAddPeer={(peer) => handleAddPeer(row.symbol, peer)}
+                  onRemovePeer={(peer) => handleRemovePeer(row.symbol, peer)}
                 />
               ))}
             </tbody>
@@ -350,7 +378,18 @@ export default function Valuations() {
 
 // ========== Sub-components ==========
 
-function SummaryRow({ row, columns, expanded, onExpand, peersData, peersLoading }) {
+function SummaryRow({ row, columns, expanded, onExpand, peersData, peersLoading, onAddPeer, onRemovePeer }) {
+  const [addInput, setAddInput] = useState('');
+
+  function handleAdd(e) {
+    e.preventDefault();
+    e.stopPropagation();
+    if (addInput.trim()) {
+      onAddPeer(addInput.trim());
+      setAddInput('');
+    }
+  }
+
   return (
     <>
       <tr className={`val-row ${expanded ? 'expanded' : ''}`} onClick={onExpand}>
@@ -386,6 +425,7 @@ function SummaryRow({ row, columns, expanded, onExpand, peersData, peersLoading 
                           {col.label}
                         </th>
                       ))}
+                      <th style={{ width: 32 }}></th>
                     </tr>
                   </thead>
                   <tbody>
@@ -402,12 +442,35 @@ function SummaryRow({ row, columns, expanded, onExpand, peersData, peersLoading 
                             )}
                           </td>
                         ))}
+                        <td className="peer-remove-cell" onClick={e => e.stopPropagation()}>
+                          <button
+                            className="btn-remove peer-remove-btn"
+                            title={`Remove ${peer.symbol}`}
+                            onClick={() => onRemovePeer(peer.symbol)}
+                          >
+                            &times;
+                          </button>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                 </table>
               </div>
             )}
+            {/* Add peer input */}
+            <form className="peer-add-form" onSubmit={handleAdd} onClick={e => e.stopPropagation()}>
+              <input
+                className="peer-add-input"
+                type="text"
+                value={addInput}
+                onChange={e => setAddInput(e.target.value.toUpperCase())}
+                placeholder="Add peer ticker..."
+                maxLength={6}
+              />
+              <button type="submit" className="btn-primary btn-sm peer-add-btn" disabled={!addInput.trim()}>
+                Add
+              </button>
+            </form>
           </td>
         </tr>
       )}

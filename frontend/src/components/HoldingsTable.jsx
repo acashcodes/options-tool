@@ -153,10 +153,12 @@ export default function HoldingsTable({ positions, onNavigateToAnalysis, onRefre
         // For grouped parent rows, asset_type is already a summary string
         if (typeof val === 'string' && val.includes('+')) return val;
         const label = val.charAt(0).toUpperCase() + val.slice(1);
+        const isShort = row.direction === 'short';
+        const dirBadge = isShort ? ' Short' : '';
         if (val === 'call' || val === 'put') {
-          return `${label} ${row.strike || ''}`;
+          return <>{isShort && <span className="direction-badge short">Short</span>}{label} {row.strike || ''}</>;
         }
-        return label;
+        return <>{isShort && <span className="direction-badge short">Short</span>}{label}</>;
       }
       case 'avg_cost':
       case 'current_price':

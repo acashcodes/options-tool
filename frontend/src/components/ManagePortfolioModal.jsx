@@ -1,5 +1,5 @@
-import { useState, useRef } from 'react';
-import { addPosition, uploadCSV, uploadOCR, confirmImport } from '../api/client';
+import { useState, useRef, useEffect } from 'react';
+import { addPosition, uploadCSV, uploadOCR, confirmImport, getOptionsExpirations } from '../api/client';
 
 const ASSET_TYPES = ['stock', 'call', 'put'];
 
@@ -31,12 +31,50 @@ export default function ManagePortfolioModal({ onClose, onSaved }) {
 
 function ManualEntry({ onSaved }) {
   const [form, setForm] = useState({
-    ticker: '', asset_type: 'stock', quantity: '', avg_cost: '', strike: '', expiration: '',
+    ticker: '', asset_type: 'stock', direction: 'long', quantity: '', avg_cost: '', strike: '', expiration: '',
   });
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [expirations, setExpirations] = useState([]);
+  const [expirationsLoading, setExpirationsLoading] = useState(false);
+  const [expirationsError, setExpirationsError] = useState('');
 
   const isOption = form.asset_type === 'call' || form.asset_type === 'put';
+
+  // Fetch valid expirations when ticker changes and type is call/put
+  useEffect(() => {
+    if (!isOption || !form.ticker || form.ticker.length < 1) {
+      setExpirations([]);
+      setExpirationsError('');
+      return;
+    }
+    const ticker = form.ticker.toUpperCase().trim();
+    if (ticker.length < 1) return;
+
+    const timer = setTimeout(() => {
+      setExpirationsLoading(true);
+      setExpirationsError('');
+      getOptionsExpirations(ticker)
+        .then(data => {
+          const exps = data.expirations || [];
+          setExpirations(exps);
+          if (exps.length === 0) {
+            setExpirationsError('No options available for this ticker');
+          }
+          // Auto-select first expiration if current selection is not in list
+          if (form.expiration && !exps.includes(form.expiration)) {
+            setForm(prev => ({ ...prev, expiration: exps.length > 0 ? exps[0] : '' }));
+          }
+        })
+        .catch(() => {
+          setExpirations([]);
+          setExpirationsError('Could not load expirations');
+        })
+        .finally(() => setExpirationsLoading(false));
+    }, 500); // debounce 500ms
+
+    return () => clearTimeout(timer);
+  }, [form.ticker, isOption]);
 
   async function handleSubmit(e) {
     e.preventDefault();
@@ -54,13 +92,14 @@ function ManualEntry({ onSaved }) {
       const payload = {
         ticker: form.ticker.toUpperCase(),
         asset_type: form.asset_type,
+        direction: form.direction,
         quantity: parseInt(form.quantity, 10),
         avg_cost: parseFloat(form.avg_cost),
         strike: isOption ? parseFloat(form.strike) : null,
         expiration: isOption ? form.expiration : null,
       };
       await addPosition(payload);
-      setForm({ ticker: '', asset_type: 'stock', quantity: '', avg_cost: '', strike: '', expiration: '' });
+      setForm({ ticker: '', asset_type: 'stock', direction: 'long', quantity: '', avg_cost: '', strike: '', expiration: '' });
       onSaved();
     } catch (err) {
       setError(err.message);
@@ -76,8 +115,14 @@ function ManualEntry({ onSaved }) {
           <input value={form.ticker} onChange={e => setForm({ ...form, ticker: e.target.value })} placeholder="AAPL" />
         </label>
         <label>Type
-          <select value={form.asset_type} onChange={e => setForm({ ...form, asset_type: e.target.value })}>
+          <select value={form.asset_type} onChange={e => setForm({ ...form, asset_type: e.target.value, expiration: '' })}>
             {ASSET_TYPES.map(t => <option key={t} value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>)}
+          </select>
+        </label>
+        <label>Direction
+          <select value={form.direction} onChange={e => setForm({ ...form, direction: e.target.value })}>
+            <option value="long">Long</option>
+            <option value="short">Short</option>
           </select>
         </label>
       </div>
@@ -95,7 +140,19 @@ function ManualEntry({ onSaved }) {
             <input type="number" step="0.5" value={form.strike} onChange={e => setForm({ ...form, strike: e.target.value })} placeholder="155" />
           </label>
           <label>Expiration
-            <input type="date" value={form.expiration} onChange={e => setForm({ ...form, expiration: e.target.value })} />
+            {expirationsLoading ? (
+              <span className="spinner" style={{ display: 'inline-block', marginTop: 8 }} />
+            ) : expirations.length > 0 ? (
+              <select value={form.expiration} onChange={e => setForm({ ...form, expiration: e.target.value })}>
+                <option value="">Select expiration...</option>
+                {expirations.map(exp => (
+                  <option key={exp} value={exp}>{exp}</option>
+                ))}
+              </select>
+            ) : (
+              <input type="date" value={form.expiration} onChange={e => setForm({ ...form, expiration: e.target.value })} />
+            )}
+            {expirationsError && <span className="form-hint-error">{expirationsError}</span>}
           </label>
         </div>
       )}

@@ -42,6 +42,15 @@ def get_db():
         conn.close()
 
 
+def _run_migrations(conn: sqlite3.Connection) -> None:
+    """Run schema migrations (safe to call multiple times)."""
+    # Add direction column to positions table (defaults to 'long')
+    try:
+        conn.execute("ALTER TABLE positions ADD COLUMN direction TEXT NOT NULL DEFAULT 'long'")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
+
+
 def init_db() -> None:
     """Create all tables if they don't exist."""
     _ensure_dir()
@@ -90,6 +99,7 @@ def init_db() -> None:
                 alert_id TEXT PRIMARY KEY
             );
         """)
+        _run_migrations(conn)
 
 
 def migrate_from_json() -> None:

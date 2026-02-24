@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from data_provider import DataProvider
-from models import PositionCreate, AssetType
+from models import PositionCreate, AssetType, Direction
 import portfolio_store as store
 import ocr_parser
 
@@ -22,6 +22,7 @@ class PositionUpdate(BaseModel):
     avg_cost: Optional[float] = None
     strike: Optional[float] = None
     expiration: Optional[str] = None
+    direction: Optional[Direction] = None
 
 
 def create_portfolio_routes(provider: DataProvider) -> APIRouter:
@@ -95,6 +96,9 @@ def create_portfolio_routes(provider: DataProvider) -> APIRouter:
                     strike = float(row["strike"])
                 expiration = row.get("expiration") or row.get("expiry") or None
 
+                raw_dir = (row.get("direction") or "long").lower()
+                direction = "short" if raw_dir in ("short", "s", "sell") else "long"
+
                 rows.append({
                     "ticker": ticker.upper(),
                     "asset_type": asset_type,
@@ -102,6 +106,7 @@ def create_portfolio_routes(provider: DataProvider) -> APIRouter:
                     "avg_cost": cost,
                     "strike": strike,
                     "expiration": expiration,
+                    "direction": direction,
                 })
             except (ValueError, KeyError) as e:
                 errors.append(f"Row {i}: {e}")

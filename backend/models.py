@@ -16,6 +16,11 @@ class AssetType(str, Enum):
     PUT = "put"
 
 
+class Direction(str, Enum):
+    LONG = "long"
+    SHORT = "short"
+
+
 class PositionCreate(BaseModel):
     """Schema for creating a new position."""
     ticker: str
@@ -24,6 +29,7 @@ class PositionCreate(BaseModel):
     avg_cost: float
     strike: Optional[float] = None
     expiration: Optional[str] = None  # YYYY-MM-DD
+    direction: Direction = Direction.LONG
 
 
 class Position(PositionCreate):
@@ -40,6 +46,7 @@ class EnrichedPosition(BaseModel):
     avg_cost: float
     strike: Optional[float] = None
     expiration: Optional[str] = None
+    direction: Direction = Direction.LONG
     # Live data
     current_price: Optional[float] = None
     market_value: Optional[float] = None

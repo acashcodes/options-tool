@@ -25,9 +25,28 @@ _history_cache = TTLCache(300)
 
 PEERS_PATH = Path(__file__).resolve().parent.parent / "data" / "peers.json"
 
+# Sector universe: well-known tickers per sector for fallback peer discovery
+SECTOR_UNIVERSE = {
+    "Technology": ["AAPL", "MSFT", "GOOGL", "META", "NVDA", "AMD", "CRM", "NOW", "ADBE", "ORCL", "INTC", "AVGO", "QCOM", "TXN"],
+    "Communication Services": ["GOOGL", "META", "NFLX", "DIS", "CMCSA", "T", "VZ", "TMUS", "SNAP", "PINS", "TTD", "ROKU"],
+    "Consumer Cyclical": ["AMZN", "TSLA", "HD", "LOW", "NKE", "SBUX", "MCD", "ABNB", "BKNG", "UBER", "SHOP"],
+    "Healthcare": ["UNH", "JNJ", "LLY", "PFE", "MRK", "ABBV", "TMO", "ABT", "DHR", "ISRG", "AMGN"],
+    "Financial Services": ["JPM", "BAC", "GS", "MS", "V", "MA", "BRK-B", "C", "WFC", "SCHW", "AXP"],
+    "Consumer Defensive": ["WMT", "COST", "PG", "KO", "PEP", "CL", "MDLZ", "PM", "MO", "TGT"],
+    "Industrials": ["CAT", "HON", "UNP", "GE", "BA", "RTX", "LMT", "DE", "MMM", "UPS"],
+    "Energy": ["XOM", "CVX", "COP", "EOG", "SLB", "OXY", "MPC", "VLO", "PSX", "HAL"],
+    "Real Estate": ["AMT", "PLD", "CCI", "SPG", "O", "PSA", "EQIX", "WELL", "DLR"],
+    "Utilities": ["NEE", "SO", "DUK", "D", "SRE", "AEP", "EXC", "XEL"],
+    "Basic Materials": ["LIN", "APD", "SHW", "ECL", "DD", "NEM", "FCX", "NUE"],
+}
+
 
 class CompareRequest(BaseModel):
     symbols: list[str]
+
+
+class PeerUpdate(BaseModel):
+    peers: list[str]
 
 
 def _safe(val) -> float | None:
@@ -323,7 +342,7 @@ def create_valuations_routes(provider) -> APIRouter:
 
     @router.get("/peers/{symbol}")
     def get_peers(symbol: str):
-        """Peers for a given symbol: explicit peers.json, then industry/sector fallback."""
+        """Peers for a given symbol: explicit peers.json, then industry/sector fallback, then sector universe."""
         sym = symbol.upper()
         peers_map = _load_peers()
 
@@ -370,6 +389,17 @@ def create_valuations_routes(provider) -> APIRouter:
 
             peer_list = industry_matches[:5] if len(industry_matches) >= 2 else (industry_matches + sector_matches)[:5]
 
+            # Third fallback: sector universe (well-known tickers per sector)
+            if len(peer_list) < 3 and sector:
+                universe = SECTOR_UNIVERSE.get(sector, [])
+                existing = set(peer_list)
+                for candidate in universe:
+                    if candidate != sym and candidate not in existing:
+                        peer_list.append(candidate)
+                        existing.add(candidate)
+                    if len(peer_list) >= 5:
+                        break
+
         if not peer_list:
             return {"symbol": sym, "peers": []}
 
@@ -385,6 +415,37 @@ def create_valuations_routes(provider) -> APIRouter:
 
         results.sort(key=lambda x: (x.get("market_cap") or 0), reverse=True)
         return {"symbol": sym, "peers": results}
+
+    @router.put("/peers/{symbol}")
+    def update_peers(symbol: str, req: PeerUpdate):
+        """Update peers for a symbol in peers.json."""
+        sym = symbol.upper()
+        peers_map = _load_peers()
+        peers_map[sym] = [p.upper() for p in req.peers[:10]]
+        try:
+            PEERS_PATH.write_text(json.dumps(peers_map, indent=2))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to save peers: {exc}")
+        # Clear cache so next request picks up the change
+        _financials_cache.clear()
+        return {"symbol": sym, "peers": peers_map[sym]}
+
+    @router.delete("/peers/{symbol}/{peer}")
+    def remove_peer(symbol: str, peer: str):
+        """Remove a specific peer from a symbol's peer list."""
+        sym = symbol.upper()
+        peer_upper = peer.upper()
+        peers_map = _load_peers()
+        current = peers_map.get(sym, [])
+        updated = [p for p in current if p.upper() != peer_upper]
+        if len(updated) == len(current):
+            raise HTTPException(status_code=404, detail=f"{peer_upper} not in {sym} peers")
+        peers_map[sym] = updated
+        try:
+            PEERS_PATH.write_text(json.dumps(peers_map, indent=2))
+        except Exception as exc:
+            raise HTTPException(status_code=500, detail=f"Failed to save peers: {exc}")
+        return {"symbol": sym, "peers": updated}
 
     @router.post("/compare")
     def compare(req: CompareRequest):

@@ -209,6 +209,14 @@ export function getValuationsPeers(symbol) {
   return request(`/valuations/peers/${encodeURIComponent(symbol)}`);
 }
 
+export function updateValuationsPeers(symbol, peers) {
+  return requestPut(`/valuations/peers/${encodeURIComponent(symbol)}`, { peers });
+}
+
+export function removeValuationsPeer(symbol, peer) {
+  return requestDelete(`/valuations/peers/${encodeURIComponent(symbol)}/${encodeURIComponent(peer)}`);
+}
+
 export function compareValuations(symbols) {
   return requestPost('/valuations/compare', { symbols });
 }

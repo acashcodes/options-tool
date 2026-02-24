@@ -1379,7 +1379,7 @@ input[type="range"]::-moz-range-thumb {
 
 /* ===== Global Text Utilities ===== */
 .text-green {
-  color: var(--accent-cyan);
+  color: var(--accent-green);
 }
 
 .text-red {
@@ -2055,6 +2055,7 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .color-cyan { color: var(--accent-cyan); }
+.color-green { color: var(--accent-green); }
 .color-red { color: var(--accent-red); }
 
 /* Leverage Card */
@@ -2363,11 +2364,36 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .holdings-table .text-green {
-  color: var(--accent-cyan);
+  color: var(--accent-green);
 }
 
 .holdings-table .text-red {
   color: var(--accent-red);
+}
+
+.direction-badge {
+  display: inline-block;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+
+.direction-badge.short {
+  background: rgba(192, 57, 43, 0.2);
+  color: var(--accent-red);
+  border: 1px solid rgba(192, 57, 43, 0.4);
+}
+
+.form-hint-error {
+  display: block;
+  font-size: 11px;
+  color: var(--accent-red);
+  margin-top: 4px;
 }
 
 .holdings-row {
@@ -2670,8 +2696,8 @@ input[type="range"]::-moz-range-thumb {
 }
 
 .overview-change {
-  font-size: 12px;
-  font-weight: 600;
+  font-size: 13px;
+  font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
@@ -4350,6 +4376,52 @@ input[type="range"]::-moz-range-thumb {
   padding: 16px 24px;
   font-size: 13px;
   color: var(--text-muted);
+}
+
+.peer-remove-cell {
+  width: 32px;
+  text-align: center;
+}
+
+.peer-remove-btn {
+  opacity: 0.4;
+  transition: opacity 0.15s;
+  font-size: 14px;
+  line-height: 1;
+  padding: 2px 6px;
+}
+
+.val-peer-row:hover .peer-remove-btn {
+  opacity: 1;
+}
+
+.peer-add-form {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 12px;
+}
+
+.peer-add-input {
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: 13px;
+  padding: 6px 10px;
+  width: 120px;
+  text-transform: uppercase;
+}
+
+.peer-add-input::placeholder {
+  color: var(--text-muted);
+  text-transform: none;
+}
+
+.peer-add-btn {
+  padding: 5px 12px;
+  font-size: 12px;
 }
 
 .val-peers-table-wrapper {

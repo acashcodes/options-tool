@@ -201,13 +201,13 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
               label="Day P&L"
               value={fmtPnl(m.day_pnl)}
               sub={m.day_pnl_percent != null ? `${m.day_pnl_percent >= 0 ? '+' : ''}${m.day_pnl_percent.toFixed(2)}%` : null}
-              color={m.day_pnl >= 0 ? 'cyan' : 'red'}
+              color={m.day_pnl >= 0 ? 'green' : 'red'}
             />
             <MetricCard
               label="Total P&L"
               value={fmtPnl(m.total_pnl)}
               sub={m.total_pnl_percent != null ? `${m.total_pnl_percent >= 0 ? '+' : ''}${m.total_pnl_percent.toFixed(2)}%` : null}
-              color={m.total_pnl >= 0 ? 'cyan' : 'red'}
+              color={m.total_pnl >= 0 ? 'green' : 'red'}
             />
           </div>
 
