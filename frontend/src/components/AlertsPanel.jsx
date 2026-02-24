@@ -103,14 +103,14 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
   const activeAlerts = alerts.filter(a => !a.dismissed);
   const dismissedAlerts = alerts.filter(a => a.dismissed);
 
-  // Categorize alerts for sections
+  // Categorize alerts into dedicated sections (no duplicates)
   const bigMoves = activeAlerts.filter(a => a.type === 'large_move');
   const ivAlerts = activeAlerts.filter(a => a.type === 'iv_high' || a.type === 'iv_low');
-  const otherAlerts = activeAlerts.filter(a => a.type !== 'large_move' && a.type !== 'iv_high' && a.type !== 'iv_low');
+  const generalAlerts = activeAlerts.filter(a => a.type !== 'large_move' && a.type !== 'iv_high' && a.type !== 'iv_low');
 
-  // Top 3 priority alerts shown by default
-  const topAlerts = activeAlerts.slice(0, 3);
-  const hasMoreAlerts = activeAlerts.length > 3;
+  // Top 3 general alerts (earnings, expiration) — big moves & IV have their own sections
+  const topAlerts = generalAlerts.slice(0, 3);
+  const hasMoreAlerts = generalAlerts.length > 3;
 
   if (loading) {
     return (
@@ -157,12 +157,12 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
         />
       )}
 
-      {/* === Top Alerts (top 3 from past 24h) === */}
+      {/* === Top Alerts (earnings, expiration — big moves & IV have own sections) === */}
       {topAlerts.length > 0 && (
         <div className="news-section-block">
           <div className="news-section-label">Top Alerts</div>
           <div className="alerts-list">
-            {(showAllAlerts ? activeAlerts : topAlerts).map(alert => (
+            {(showAllAlerts ? generalAlerts : topAlerts).map(alert => (
               <div
                 key={alert.id}
                 className={`alert-item alert-${alert.severity}`}
@@ -187,7 +187,7 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
               className="section-show-more"
               onClick={() => setShowAllAlerts(!showAllAlerts)}
             >
-              {showAllAlerts ? 'Show less' : `Show all ${activeAlerts.length} alerts`}
+              {showAllAlerts ? 'Show less' : `Show all ${generalAlerts.length} alerts`}
             </button>
           )}
         </div>
@@ -196,9 +196,10 @@ export default function AlertsPanel({ onNavigateToAnalysis }) {
       {activeAlerts.length === 0 && (
         <div className="news-section-block">
           <div className="news-section-label">Alerts</div>
-          <div className="alerts-empty">No active alerts.</div>
+          <div className="alerts-empty">No active alerts. Looking good.</div>
         </div>
       )}
+
 
       {/* === News Feed (visible by default) === */}
       <div className="news-section-block">
