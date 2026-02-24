@@ -1,0 +1,18 @@
+{
+  "AAPL": ["MSFT", "GOOGL", "META", "AMZN", "NVDA"],
+  "MSFT": ["AAPL", "GOOGL", "AMZN", "META", "CRM"],
+  "GOOGL": ["META", "MSFT", "AMZN", "AAPL", "NFLX"],
+  "META": ["GOOGL", "SNAP", "PINS", "TTD", "MSFT"],
+  "AMZN": ["MSFT", "GOOGL", "SHOP", "WMT", "BABA"],
+  "NVDA": ["AMD", "INTC", "AVGO", "QCOM", "TSM"],
+  "AMD": ["NVDA", "INTC", "AVGO", "QCOM", "MRVL"],
+  "TSLA": ["RIVN", "NIO", "F", "GM", "LCID"],
+  "NFLX": ["DIS", "WBD", "PARA", "CMCSA", "ROKU"],
+  "JPM": ["BAC", "GS", "MS", "C", "WFC"],
+  "V": ["MA", "PYPL", "SQ", "AXP", "FIS"],
+  "UNH": ["CI", "ELV", "HUM", "CVS", "MOH"],
+  "JNJ": ["PFE", "MRK", "ABBV", "LLY", "BMY"],
+  "SPY": ["QQQ", "IWM", "DIA", "VOO", "VTI"],
+  "CRM": ["NOW", "WDAY", "HUBS", "ZS", "TEAM"],
+  "SHOP": ["SQ", "MELI", "AMZN", "WIX", "BIGC"]
+}

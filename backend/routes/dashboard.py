@@ -329,6 +329,19 @@ def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional
 
     # ---- News ----
 
+    _BLOCKED_PUBLISHERS = {
+        "motley fool", "the motley fool",
+        "investor's business daily", "investors.com",
+        "stockstory", "stock story",
+        "investorplace", "investor place",
+        "insidermonkey", "insider monkey",
+        "24/7 wall st", "247wallst",
+        "benzinga",
+        "seeking alpha",
+        "tipranks",
+        "zacks", "zacks investment research",
+    }
+
     @router.get("/news")
     def get_news():
         """Fetch recent news for portfolio + watchlist tickers via yfinance."""
@@ -348,15 +361,20 @@ def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional
                 t = yf.Ticker(symbol)
                 news = t.news or []
                 result = []
-                for item in news[:3]:
+                for item in news[:5]:
                     content = item.get("content", {})
                     if not content:
+                        continue
+                    publisher = content.get("provider", {}).get("displayName", "")
+                    # Skip blocked publishers (substring match)
+                    pub_lower = publisher.lower().strip()
+                    if any(blocked in pub_lower for blocked in _BLOCKED_PUBLISHERS):
                         continue
                     pub = content.get("pubDate", "")
                     result.append({
                         "ticker": symbol,
                         "title": content.get("title", ""),
-                        "publisher": content.get("provider", {}).get("displayName", ""),
+                        "publisher": publisher,
                         "link": content.get("canonicalUrl", {}).get("url", ""),
                         "published": pub,
                         "type": content.get("contentType", ""),

@@ -103,4 +103,57 @@ def create_market_routes(provider: DataProvider) -> APIRouter:
     # Use POST /api/strategy/analyze for correct P&L curves with proper
     # sign conventions, entry costs, and multi-leg support.
 
+    @router.get("/technicals/{symbol}")
+    def get_technicals(symbol: str):
+        """Compute moving averages and technical indicators for a symbol."""
+        try:
+            history = provider.get_history(symbol, period="1y", interval="1d")
+            if not history:
+                return {"symbol": symbol.upper(), "moving_averages": []}
+
+            closes = [h["close"] for h in history if h.get("close") is not None]
+            if len(closes) < 5:
+                return {"symbol": symbol.upper(), "moving_averages": []}
+
+            current_price = closes[-1]
+            ma_periods = [
+                {"period": 5, "label": "5 DMA"},
+                {"period": 20, "label": "20 DMA"},
+                {"period": 50, "label": "50 DMA"},
+                {"period": 200, "label": "200 DMA"},
+            ]
+
+            moving_averages = []
+            for ma in ma_periods:
+                n = ma["period"]
+                if len(closes) >= n:
+                    ma_val = sum(closes[-n:]) / n
+                    pct_diff = ((current_price - ma_val) / ma_val) * 100
+                    moving_averages.append({
+                        "period": n,
+                        "label": ma["label"],
+                        "value": round(ma_val, 2),
+                        "above": current_price >= ma_val,
+                        "pct_distance": round(pct_diff, 2),
+                    })
+                else:
+                    moving_averages.append({
+                        "period": n,
+                        "label": ma["label"],
+                        "value": None,
+                        "above": None,
+                        "pct_distance": None,
+                    })
+
+            return {
+                "symbol": symbol.upper(),
+                "current_price": round(current_price, 2),
+                "moving_averages": moving_averages,
+            }
+        except Exception as e:
+            raise HTTPException(
+                status_code=404,
+                detail=f"Could not compute technicals for '{symbol}': {e}",
+            )
+
     return router

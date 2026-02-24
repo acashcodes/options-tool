@@ -191,6 +191,30 @@ export function syncNewsletter() {
   return requestPost('/newsletter/sync_now', {});
 }
 
+// ===== Valuations =====
+
+export function getValuationsSummary(source = 'all') {
+  return request(`/valuations/summary?source=${encodeURIComponent(source)}`);
+}
+
+export function getValuationsCompany(symbol) {
+  return request(`/valuations/company/${encodeURIComponent(symbol)}`);
+}
+
+export function getValuationsPeers(symbol) {
+  return request(`/valuations/peers/${encodeURIComponent(symbol)}`);
+}
+
+export function compareValuations(symbols) {
+  return requestPost('/valuations/compare', { symbols });
+}
+
+// ===== Technicals =====
+
+export function getTechnicals(symbol) {
+  return request(`/technicals/${encodeURIComponent(symbol)}`);
+}
+
 // ===== Strategy Analysis =====
 
 export function analyzeStrategy(payload) {

@@ -5,6 +5,7 @@ from __future__ import annotations
 import logging
 import threading
 import time
+from datetime import datetime, timedelta
 from typing import Callable, Optional
 
 from .config import NewsletterConfig
@@ -40,8 +41,8 @@ class IMAPListener:
         logger.info("IMAP listener stopped")
 
     def fetch_unseen_once(self) -> int:
-        """One-shot fetch of unseen messages. Returns count processed."""
-        return self._fetch_unseen()
+        """One-shot fetch of recent messages. Returns count processed."""
+        return self._fetch_recent()
 
     def _run(self) -> None:
         while not self._stop_event.is_set():
@@ -98,21 +99,26 @@ class IMAPListener:
             self._stop_event.wait(self.config.poll_seconds)
 
     def _fetch_with_client(self, client) -> int:
-        """Fetch and process unseen messages using an existing IMAP client."""
-        messages = client.search(["UNSEEN"])
+        """Fetch and process recent messages (last 7 days).
+
+        Uses date-based search instead of UNSEEN so emails already read in
+        Gmail are still picked up. Deduplication by message_id in the
+        newsletter service prevents reprocessing.
+        """
+        since = (datetime.utcnow() - timedelta(days=7)).strftime("%d-%b-%Y")
+        messages = client.search(["SINCE", since])
         count = 0
         for uid in messages:
             try:
                 raw_data = client.fetch([uid], ["RFC822"])
                 raw_bytes = raw_data[uid][b"RFC822"]
                 self.on_new_email(raw_bytes)
-                client.set_flags([uid], [b"\\Seen"])
                 count += 1
             except Exception as exc:
                 logger.error("Failed to process message %s: %s", uid, exc)
         return count
 
-    def _fetch_unseen(self) -> int:
+    def _fetch_recent(self) -> int:
         """One-shot connection and fetch."""
         import imapclient
 
@@ -126,5 +132,5 @@ class IMAPListener:
                 client.select_folder(self.config.imap_folder)
                 return self._fetch_with_client(client)
         except Exception as exc:
-            logger.error("Fetch unseen error: %s", exc)
+            logger.error("Fetch recent error: %s", exc)
             return 0

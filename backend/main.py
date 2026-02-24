@@ -16,6 +16,7 @@ from routes.dashboard import create_dashboard_routes
 from routes.recommender import create_recommender_routes
 from routes.strategy import create_strategy_routes
 from routes.assumptions import create_assumptions_routes
+from routes.valuations import create_valuations_routes
 from routes.newsletter import create_newsletter_routes
 from db import init_db, migrate_from_json
 
@@ -72,6 +73,7 @@ app.include_router(create_dashboard_routes(provider, newsletter_service=newslett
 app.include_router(create_recommender_routes(provider))
 app.include_router(create_strategy_routes(provider))
 app.include_router(create_assumptions_routes(provider))
+app.include_router(create_valuations_routes(provider))
 app.include_router(create_newsletter_routes(service=newsletter_service))
 
 

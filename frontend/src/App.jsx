@@ -2,6 +2,7 @@ import { useState } from 'react';
 import './App.css';
 import DashboardTab from './components/DashboardTab';
 import PortfolioTab from './components/PortfolioTab';
+import Valuations from './components/Valuations';
 import Analysis from './components/Analysis';
 
 function App() {
@@ -30,6 +31,12 @@ function App() {
             Portfolio
           </button>
           <button
+            className={`tab-btn ${activeTab === 'valuations' ? 'active' : ''}`}
+            onClick={() => setActiveTab('valuations')}
+          >
+            Valuations
+          </button>
+          <button
             className={`tab-btn ${activeTab === 'analysis' ? 'active' : ''}`}
             onClick={() => setActiveTab('analysis')}
           >
@@ -43,6 +50,9 @@ function App() {
       )}
       {activeTab === 'portfolio' && (
         <PortfolioTab onNavigateToAnalysis={handleNavigateToAnalysis} />
+      )}
+      {activeTab === 'valuations' && (
+        <Valuations />
       )}
       {activeTab === 'analysis' && (
         <Analysis

@@ -29,7 +29,7 @@ const GREEK_INFO = {
       if (v < 0) return `${fmtVal} \u2014 ${dir} convexity, big moves hurt`;
       return 'Flat gamma';
     },
-    tooltip: 'Gamma measures how your delta accelerates on big moves. Positive gamma (long options) means profits accelerate as the market moves in your favor. Negative gamma (short options) means losses accelerate on large moves. Think of it as convexity.',
+    tooltip: 'Gamma measures how your delta accelerates on big moves. Positive gamma (long options) means profits accelerate as the market moves in your favor. Negative gamma (short options) means losses accelerate on large moves.',
   },
   theta: {
     label: 'Theta ($/day)',
@@ -49,7 +49,7 @@ const GREEK_INFO = {
       if (v < 0) return `-$${Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 0 })} per 1% IV rise`;
       return 'Vol-neutral';
     },
-    tooltip: 'Vega is your sensitivity to changes in implied volatility. Positive vega = you profit when IV rises (long options, good before earnings). Negative vega = you profit when IV falls (short options, good after IV crush).',
+    tooltip: 'Vega is your sensitivity to changes in implied volatility. Positive vega = you profit when IV rises (long options). Negative vega = you profit when IV falls (short options).',
   },
   options_pnl: {
     label: 'Options P&L',
@@ -59,7 +59,7 @@ const GREEK_INFO = {
       if (v < 0) return 'Options trades are underwater';
       return 'Options trades at breakeven';
     },
-    tooltip: 'Total profit/loss from your options positions only, separated from stock P&L. Helps you track whether your options bets are paying off independently.',
+    tooltip: 'Total profit/loss from your options positions only, separated from stock P&L.',
   },
 };
 
@@ -72,7 +72,7 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
     const saved = localStorage.getItem('portfolio_margin');
     return saved || '';
   });
-  const [editingLeverage, setEditingLeverage] = useState(false);
+  const [editingMargin, setEditingMargin] = useState(false);
 
   const fetchPortfolio = useCallback(async () => {
     setLoading(true);
@@ -94,13 +94,13 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
     fetchPortfolio();
   }
 
-  function handleLeverageSave() {
+  function handleMarginSave() {
     if (marginAmount.trim()) {
       localStorage.setItem('portfolio_margin', marginAmount.trim());
     } else {
       localStorage.removeItem('portfolio_margin');
     }
-    setEditingLeverage(false);
+    setEditingMargin(false);
   }
 
   const m = portfolio?.metrics;
@@ -113,13 +113,11 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
     .reduce((sum, p) => sum + (p.pnl || 0), 0);
   const hasOptions = positions.some(p => p.asset_type === 'call' || p.asset_type === 'put');
 
-  // Display leverage: if margin $ is set, leverage = gross_exposure / margin
+  // Leverage computed from margin input
   const parsedMargin = marginAmount.trim() ? parseFloat(marginAmount) : null;
   const leverageVal = parsedMargin && parsedMargin > 0 && m?.gross_exposure
     ? m.gross_exposure / parsedMargin
     : m?.leverage_ratio;
-  const displayLeverage = leverageVal != null ? `${leverageVal.toFixed(2)}x` : '\u2014';
-  const marginLabel = parsedMargin ? `$${Number(parsedMargin).toLocaleString('en-US', { maximumFractionDigits: 0 })} margin` : null;
 
   return (
     <div className="portfolio-tab">
@@ -157,17 +155,38 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
               Add Your First Position
             </button>
           </div>
-
-          {/* Watchlist visible even with empty portfolio */}
           <WatchlistTable onNavigateToAnalysis={onNavigateToAnalysis} />
         </>
       )}
 
       {!loading && !isEmpty && m && (
         <>
-          {/* Metrics Bar */}
+          {/* Row 1: Hero Portfolio Value */}
+          <div className="port-hero">
+            <span className="port-hero-label">Portfolio Value</span>
+            <span className="port-hero-value">{fmtDollar(m.total_market_value)}</span>
+          </div>
+
+          {/* Row 2: Key Stats */}
           <div className="metrics-bar">
-            <MetricCard label="Market Value" value={fmtDollar(m.total_market_value)} />
+            <MarginCard
+              parsedMargin={parsedMargin}
+              editing={editingMargin}
+              inputVal={marginAmount}
+              onEdit={() => setEditingMargin(true)}
+              onChange={setMarginAmount}
+              onSave={handleMarginSave}
+              onCancel={() => { setEditingMargin(false); setMarginAmount(localStorage.getItem('portfolio_margin') || ''); }}
+            />
+            <MetricCard
+              label="Leverage"
+              value={leverageVal != null ? `${leverageVal.toFixed(2)}x` : '\u2014'}
+              color={leverageVal != null && leverageVal > 1.5 ? 'red' : null}
+            />
+            <MetricCard
+              label="Gross Exposure"
+              value={fmtDollar(m.gross_exposure)}
+            />
             <MetricCard
               label="Day P&L"
               value={fmtPnl(m.day_pnl)}
@@ -180,26 +199,40 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
               sub={m.total_pnl_percent != null ? `${m.total_pnl_percent >= 0 ? '+' : ''}${m.total_pnl_percent.toFixed(2)}%` : null}
               color={m.total_pnl >= 0 ? 'cyan' : 'red'}
             />
-            <MetricCard
-              label="Gross Exposure"
-              value={fmtDollar(m.gross_exposure)}
-            />
-            <MetricCard
-              label="Net Exposure"
-              value={fmtDollar(m.net_exposure)}
-              color={m.net_exposure >= 0 ? 'cyan' : 'red'}
-            />
-            <LeverageCard
-              value={displayLeverage}
-              leverageVal={leverageVal}
-              editing={editingLeverage}
-              inputVal={marginAmount}
-              onEdit={() => setEditingLeverage(true)}
-              onChange={setMarginAmount}
-              onSave={handleLeverageSave}
-              onCancel={() => { setEditingLeverage(false); setMarginAmount(localStorage.getItem('portfolio_margin') || ''); }}
-              marginLabel={marginLabel}
-            />
+          </div>
+
+          {/* Row 3: Exposure Breakdown */}
+          <div className="exposure-bar">
+            <div className="exposure-card">
+              <span className="exposure-label">% Net Long</span>
+              <span className="exposure-value color-cyan">
+                {m.pct_net_long != null ? `${m.pct_net_long.toFixed(1)}%` : '\u2014'}
+              </span>
+              {m.long_exposure != null && (
+                <span className="exposure-sub">{fmtDollar(m.long_exposure)}</span>
+              )}
+            </div>
+            <div className="exposure-card">
+              <span className="exposure-label">% Net Short</span>
+              <span className="exposure-value color-red">
+                {m.pct_net_short != null ? `${m.pct_net_short.toFixed(1)}%` : '\u2014'}
+              </span>
+              {m.short_exposure != null && (
+                <span className="exposure-sub">{fmtDollar(m.short_exposure)}</span>
+              )}
+            </div>
+            <div className="exposure-visual">
+              <div className="exposure-bar-track">
+                <div
+                  className="exposure-bar-long"
+                  style={{ width: `${m.pct_net_long || 0}%` }}
+                />
+              </div>
+              <div className="exposure-bar-labels">
+                <span>Long</span>
+                <span>Short</span>
+              </div>
+            </div>
           </div>
 
           {/* Greeks Bar */}
@@ -281,10 +314,10 @@ function MetricCard({ label, value, sub, color }) {
   );
 }
 
-function LeverageCard({ value, leverageVal, editing, inputVal, onEdit, onChange, onSave, onCancel, marginLabel }) {
+function MarginCard({ parsedMargin, editing, inputVal, onEdit, onChange, onSave, onCancel }) {
   return (
-    <div className="port-metric-card leverage-card">
-      <span className="port-metric-label">Leverage</span>
+    <div className="port-metric-card margin-card">
+      <span className="port-metric-label">Margin Used</span>
       {editing ? (
         <div className="leverage-edit-row">
           <span className="leverage-dollar-sign">$</span>
@@ -304,14 +337,13 @@ function LeverageCard({ value, leverageVal, editing, inputVal, onEdit, onChange,
         </div>
       ) : (
         <span
-          className={`port-metric-value leverage-clickable ${leverageVal != null && leverageVal > 1.5 ? 'color-red' : ''}`}
+          className="port-metric-value leverage-clickable"
           onClick={onEdit}
           title="Click to set margin amount"
         >
-          {value}
+          {parsedMargin ? `$${Number(parsedMargin).toLocaleString('en-US', { maximumFractionDigits: 0 })}` : 'Set margin'}
         </span>
       )}
-      {marginLabel && !editing && <span className="port-metric-sub">{marginLabel}</span>}
     </div>
   );
 }

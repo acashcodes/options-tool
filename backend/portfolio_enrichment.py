@@ -31,6 +31,8 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
     total_day_pnl = 0.0
     gross_exposure = 0.0
     net_exposure = 0.0
+    long_exposure = 0.0
+    short_exposure = 0.0
     port_delta = 0.0
     port_gamma = 0.0
     port_theta = 0.0
@@ -93,6 +95,10 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
                 total_cost += cb
                 gross_exposure += abs(mv)
                 net_exposure += mv
+                if mv >= 0:
+                    long_exposure += mv
+                else:
+                    short_exposure += abs(mv)
         else:
             # Option position
             if price is not None and pos.strike and pos.expiration:
@@ -124,7 +130,10 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
                     total_cost += cb
                     gross_exposure += abs(mv)
                     net_exposure += mv
-
+                    if mv >= 0:
+                        long_exposure += mv
+                    else:
+                        short_exposure += abs(mv)
                 if iv is not None and iv > 0:
                     ep["iv"] = round(iv * 100, 2)  # Store as percentage
                     t_years = _time_to_expiry(pos.expiration)
@@ -211,6 +220,10 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
         "day_pnl_percent": day_pnl_pct,
         "gross_exposure": round(gross_exposure, 2),
         "net_exposure": round(net_exposure, 2),
+        "long_exposure": round(long_exposure, 2),
+        "short_exposure": round(short_exposure, 2),
+        "pct_net_long": round((long_exposure / gross_exposure) * 100, 2) if gross_exposure > 0 else None,
+        "pct_net_short": round((short_exposure / gross_exposure) * 100, 2) if gross_exposure > 0 else None,
         "leverage_ratio": round(gross_exposure / abs(net_exposure), 2) if net_exposure != 0 else None,
         "position_count": len(positions),
         "greeks": {
