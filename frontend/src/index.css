@@ -1,20 +1,21 @@
 @import url('https://fonts.googleapis.com/css2?family=Libre+Baskerville:ital,wght@0,400;0,700;1,400&family=Source+Serif+4:ital,opsz,wght@0,8..60,200;0,8..60,300;0,8..60,400;0,8..60,600;0,8..60,700;1,8..60,200;1,8..60,300&display=swap');
 
 :root {
-  --bg-primary: #0f1119;
-  --bg-secondary: #181D31;
-  --bg-tertiary: #1f2440;
-  --bg-hover: #262e4a;
-  --border: #2a3350;
-  --border-light: #3a4565;
-  --text-primary: #F0E9D2;
-  --text-secondary: #E6DDC4;
-  --text-muted: #678983;
-  --accent-cyan: #678983;
+  --bg-primary: #ffffff;
+  --bg-secondary: #f7f8fa;
+  --bg-tertiary: #eef0f4;
+  --bg-hover: #e4e7ed;
+  --border: #d8dce5;
+  --border-light: #c5cad6;
+  --text-primary: #1a1a2e;
+  --text-secondary: #4a4a5a;
+  --text-muted: #7a8a8e;
+  --accent-cyan: #2a7a7a;
+  --accent-green: #1e8e4e;
   --accent-red: #c0392b;
-  --accent-yellow: #d4a95a;
-  --accent-blue: #5b7ea1;
-  --accent-purple: #8b7db8;
+  --accent-yellow: #b8860b;
+  --accent-blue: #3a6a9a;
+  --accent-purple: #6b5b95;
   --gradient-brand: none;
   --font-main: 'Sabon', 'Libre Baskerville', Georgia, 'Times New Roman', serif;
   --font-body: 'Source Serif 4', 'Sabon', 'Libre Baskerville', Georgia, serif;

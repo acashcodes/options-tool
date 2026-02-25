@@ -32,10 +32,9 @@ export default function AnalysisContextCards() {
   const expiryAlerts = (alertData?.alerts || []).filter(a => !a.dismissed && a.type === 'expiration').length;
 
   // Portfolio data
-  const totalMV = portfolio?.total_market_value;
-  const dayPnl = portfolio?.total_day_pnl;
-  const positions = portfolio?.positions || [];
-  const topPos = positions.length > 0 ? positions.reduce((a, b) => Math.abs(b.market_value || 0) > Math.abs(a.market_value || 0) ? b : a, positions[0]) : null;
+  const metrics = portfolio?.metrics;
+  const dayPnlPct = metrics?.day_pnl_percent;
+  const totalPnlPct = metrics?.total_pnl_percent;
 
   return (
     <div className="context-cards">
@@ -93,24 +92,25 @@ export default function AnalysisContextCards() {
 
       {/* Portfolio Snapshot */}
       <div className="context-card">
-        <div className="context-card-label">Portfolio Snapshot</div>
+        <div className="context-card-label">Portfolio</div>
         <div className="context-card-body">
           {portfolio ? (
             <>
-              <div className="context-card-hero">
-                {totalMV != null ? `$${totalMV.toLocaleString(undefined, { maximumFractionDigits: 0 })}` : '—'}
-              </div>
-              {dayPnl != null && (
-                <div className={`context-card-detail ${dayPnl >= 0 ? 'color-cyan' : 'color-red'}`}>
-                  Day P&L: {dayPnl >= 0 ? '+' : ''}{dayPnl.toLocaleString(undefined, { style: 'currency', currency: 'USD', maximumFractionDigits: 0 })}
-                </div>
-              )}
-              {topPos && (
-                <div className="context-card-detail">
-                  Top: {topPos.ticker} ({((Math.abs(topPos.market_value || 0) / (totalMV || 1)) * 100).toFixed(0)}%)
-                </div>
-              )}
-              {positions.length === 0 && (
+              {dayPnlPct != null ? (
+                <>
+                  <div className={`context-card-hero ${dayPnlPct >= 0 ? 'color-green' : 'color-red'}`}>
+                    {dayPnlPct >= 0 ? '+' : ''}{dayPnlPct.toFixed(2)}%
+                  </div>
+                  <div className="context-card-detail">today</div>
+                </>
+              ) : totalPnlPct != null ? (
+                <>
+                  <div className={`context-card-hero ${totalPnlPct >= 0 ? 'color-green' : 'color-red'}`}>
+                    {totalPnlPct >= 0 ? '+' : ''}{totalPnlPct.toFixed(2)}%
+                  </div>
+                  <div className="context-card-detail">total return</div>
+                </>
+              ) : (
                 <div className="context-card-detail">No positions yet</div>
               )}
             </>

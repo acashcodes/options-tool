@@ -425,10 +425,9 @@ def create_dashboard_routes(provider: DataProvider, newsletter_service: Optional
             return None
 
         prompt = (
-            f"Condense these {len(articles)} news articles about {ticker} into 2-3 sentences. "
-            "Focus on: (1) what happened, (2) why it matters, (3) implications for the stock. "
-            "Be specific and actionable. No filler phrases.\n\n"
-            f"Articles:\n{titles}"
+            f"Summarize these {len(articles)} headlines about {ticker} in 1-2 sentences (max 40 words). "
+            "Cover the key takeaways. No preamble, no filler.\n\n"
+            f"Headlines:\n{titles}"
         )
 
         try:

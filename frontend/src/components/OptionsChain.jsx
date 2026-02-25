@@ -233,7 +233,6 @@ export default function OptionsChain({ symbol, currentPrice, onAddLeg }) {
             {visibleExpiries.map((exp) => {
               const dte = daysUntil(exp);
               const isNearTerm = dte <= 7;
-              const isMonthly = isMonthlyExpiry(exp);
               return (
                 <button
                   key={exp}
@@ -241,7 +240,6 @@ export default function OptionsChain({ symbol, currentPrice, onAddLeg }) {
                   onClick={() => setSelectedExpiry(exp)}
                 >
                   {formatExpiry(exp)}
-                  {isMonthly ? <span className="expiry-badge monthly">M</span> : <span className="expiry-badge weekly">W</span>}
                 </button>
               );
             })}
