@@ -265,29 +265,29 @@ export default function PayoffDiagram({ legs, currentPrice, title, quote }) {
                   <stop offset="100%" stopColor="#ff4757" stopOpacity={0.3} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#1a1a2e" strokeDasharray="3 3" />
+              <CartesianGrid stroke="#e0e0e8" strokeDasharray="3 3" />
               <XAxis
                 dataKey="price"
                 type="number"
                 domain={['dataMin', 'dataMax']}
-                tick={{ fill: '#5a5a72', fontSize: 11 }}
+                tick={{ fill: '#6a6a7a', fontSize: 11 }}
                 tickFormatter={(v) => `$${v.toFixed(0)}`}
-                stroke="#2a2a3e"
+                stroke="#c5cad6"
               >
-                <Label value="Stock Price at Expiration" position="bottom" offset={10} fill="#5a5a72" fontSize={11} />
+                <Label value="Stock Price at Expiration" position="bottom" offset={10} fill="#6a6a7a" fontSize={11} />
               </XAxis>
               <YAxis
-                tick={{ fill: '#5a5a72', fontSize: 11 }}
+                tick={{ fill: '#6a6a7a', fontSize: 11 }}
                 tickFormatter={(v) => fmtCompact(v)}
-                stroke="#2a2a3e"
+                stroke="#c5cad6"
               >
-                <Label value="Profit / Loss ($)" angle={-90} position="insideLeft" offset={0} fill="#5a5a72" fontSize={11} style={{ textAnchor: 'middle' }} />
+                <Label value="Profit / Loss ($)" angle={-90} position="insideLeft" offset={0} fill="#6a6a7a" fontSize={11} style={{ textAnchor: 'middle' }} />
               </YAxis>
               <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine y={0} stroke="#3a3a52" strokeWidth={1} />
+              <ReferenceLine y={0} stroke="#b0b0c0" strokeWidth={1} />
               <ReferenceLine
                 x={currentPrice}
-                stroke="#5a5a72"
+                stroke="#9a9ab0"
                 strokeDasharray="6 4"
                 label={{
                   value: `Current: $${currentPrice.toFixed(2)}`,

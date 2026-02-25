@@ -6,7 +6,7 @@ import math
 from datetime import datetime, date
 from typing import Any, Optional
 
-from models import Position, AssetType, Direction
+from models import Position, AssetType
 from greeks import compute_greeks
 
 
@@ -38,8 +38,6 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
     port_theta = 0.0
     port_vega = 0.0
     beta_delta_sum = 0.0
-    gamma_price_sum = 0.0
-    options_pnl = 0.0
 
     for pos in positions:
         ticker = pos.ticker.upper()
@@ -47,10 +45,6 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
         price = quote.get("price")
         sector = quote.get("sector")
         beta = quote.get("beta")
-
-        # Direction sign: +1 for long, -1 for short
-        direction = getattr(pos, "direction", Direction.LONG)
-        sign = 1 if direction == Direction.LONG else -1
 
         ep = {
             "id": pos.id,
@@ -60,7 +54,6 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
             "avg_cost": pos.avg_cost,
             "strike": pos.strike,
             "expiration": pos.expiration,
-            "direction": direction.value if hasattr(direction, "value") else str(direction),
             "current_price": price,
             "sector": sector,
             "beta": beta,
@@ -79,21 +72,21 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
 
         if pos.asset_type == AssetType.STOCK:
             if price is not None:
-                mv = sign * pos.quantity * price
-                cb = sign * pos.quantity * pos.avg_cost
+                mv = pos.quantity * price
+                cb = pos.quantity * pos.avg_cost
                 ep["market_value"] = round(mv, 2)
                 ep["cost_basis"] = round(cb, 2)
                 ep["pnl"] = round(mv - cb, 2)
                 ep["pnl_percent"] = round(((mv - cb) / abs(cb)) * 100, 2) if cb != 0 else None
-                # Day P&L = sign * qty * (price - previous_close)
+                # Day P&L = qty * (price - previous_close)
                 prev_close = quote.get("previous_close")
                 if prev_close is not None:
-                    day_pnl = sign * pos.quantity * (price - prev_close)
+                    day_pnl = pos.quantity * (price - prev_close)
                     ep["day_pnl"] = round(day_pnl, 2)
                     total_day_pnl += day_pnl
-                # Stock delta: per-unit is sign * 1.0, dollar delta = sign * qty * price
-                ep["delta_per_unit"] = 1.0 * sign
-                pos_delta = sign * pos.quantity * price
+                # Stock delta: per-unit is always 1.0, dollar delta = qty * price
+                ep["delta_per_unit"] = 1.0
+                pos_delta = pos.quantity * price
                 ep["delta"] = round(pos_delta, 2)
                 port_delta += pos_delta
                 if beta is not None:
@@ -122,26 +115,30 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
                 # Use live option price if available, fall back to avg_cost
                 opt_px = option_price if option_price is not None else pos.avg_cost
                 if opt_px is not None:
-                    mv = sign * pos.quantity * multiplier * opt_px
-                    cb = sign * pos.quantity * multiplier * pos.avg_cost
+                    mv = pos.quantity * multiplier * opt_px
+                    cb = pos.quantity * multiplier * pos.avg_cost
                     ep["current_price"] = opt_px
                     ep["market_value"] = round(mv, 2)
                     ep["cost_basis"] = round(cb, 2)
                     ep["pnl"] = round(mv - cb, 2)
                     ep["pnl_percent"] = round(((mv - cb) / abs(cb)) * 100, 2) if cb != 0 else None
-                    options_pnl += mv - cb
-                    # Day P&L for options: sign * change in option price × qty × 100
+                    # Day P&L for options: change in option price × qty × 100
                     if option_price is not None:
-                        ep["day_pnl"] = round(sign * (option_price - pos.avg_cost) * pos.quantity * multiplier, 2)
+                        ep["day_pnl"] = round((option_price - pos.avg_cost) * pos.quantity * multiplier, 2)
                         total_day_pnl += ep["day_pnl"]
                     total_mv += mv
                     total_cost += cb
                     gross_exposure += abs(mv)
-                    net_exposure += mv
-                    if mv >= 0:
-                        long_exposure += mv
-                    else:
+                    # Puts provide short exposure, calls provide long exposure
+                    if pos.asset_type == AssetType.PUT:
+                        net_exposure -= abs(mv)
                         short_exposure += abs(mv)
+                    else:
+                        net_exposure += mv
+                        if mv >= 0:
+                            long_exposure += mv
+                        else:
+                            short_exposure += abs(mv)
                 if iv is not None and iv > 0:
                     ep["iv"] = round(iv * 100, 2)  # Store as percentage
                     t_years = _time_to_expiry(pos.expiration)
@@ -152,23 +149,22 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
                             option_type="call" if pos.asset_type == AssetType.CALL else "put",
                         )
                         if greeks.get("delta") is not None:
-                            ep["delta_per_unit"] = round(greeks["delta"] * sign, 4)
-                            pos_delta = sign * greeks["delta"] * pos.quantity * multiplier * price
+                            ep["delta_per_unit"] = round(greeks["delta"], 4)
+                            pos_delta = greeks["delta"] * pos.quantity * multiplier * price
                             ep["delta"] = round(pos_delta, 2)
                             port_delta += pos_delta
                             if beta is not None:
                                 beta_delta_sum += pos_delta * beta
                         if greeks.get("gamma") is not None:
-                            pos_gamma = sign * greeks["gamma"] * pos.quantity * multiplier
+                            pos_gamma = greeks["gamma"] * pos.quantity * multiplier
                             ep["gamma"] = round(pos_gamma, 4)
                             port_gamma += pos_gamma
-                            gamma_price_sum += greeks["gamma"] * pos.quantity * multiplier * price * 0.01
                         if greeks.get("theta") is not None:
-                            pos_theta = sign * greeks["theta"] * pos.quantity * multiplier
+                            pos_theta = greeks["theta"] * pos.quantity * multiplier
                             ep["theta"] = round(pos_theta, 2)
                             port_theta += pos_theta
                         if greeks.get("vega") is not None:
-                            pos_vega = sign * greeks["vega"] * pos.quantity * multiplier
+                            pos_vega = greeks["vega"] * pos.quantity * multiplier
                             ep["vega"] = round(pos_vega, 2)
                             port_vega += pos_vega
 
@@ -218,43 +214,8 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
         reverse=True,
     )[:10]
 
-    # --- New Row 2 metrics: Time & Expiry Risk ---
-    option_dte_weights = []  # (dte_days, abs_mv) for option positions
-    for ep in enriched_positions:
-        if ep["asset_type"] in (AssetType.CALL, AssetType.PUT) and ep.get("market_value") is not None:
-            exp = None
-            # Find original position to get expiration
-            for p in positions:
-                if p.id == ep["id"]:
-                    exp = p.expiration
-                    break
-            if exp:
-                dte_days = _time_to_expiry(exp) * 365
-                option_dte_weights.append((dte_days, abs(ep["market_value"])))
-
-    total_opt_abs_mv = sum(w for _, w in option_dte_weights)
-    weighted_avg_dte = (
-        sum(dte * w for dte, w in option_dte_weights) / total_opt_abs_mv
-        if total_opt_abs_mv > 0 else None
-    )
-
-    total_abs_mv_all = sum(abs(ep.get("market_value") or 0) for ep in enriched_positions)
-    pct_expiring_30d = (
-        sum(w for dte, w in option_dte_weights if dte < 30) / total_abs_mv_all * 100
-        if total_abs_mv_all > 0 else None
-    )
-    pct_expiring_14d = (
-        sum(w for dte, w in option_dte_weights if dte < 14) / total_abs_mv_all * 100
-        if total_abs_mv_all > 0 else None
-    )
-
-    five_day_theta_dollars = port_theta * 5
-    five_day_theta_pct = (port_theta * 5 / abs(total_mv) * 100) if total_mv != 0 else None
-
-    # --- New Row 3 metrics: Scenario & Stress ---
-    iv_stress_minus5 = port_vega * (-5)
-    iv_stress_plus5 = port_vega * 5
-    seven_day_theta = port_theta * 7
+    # Compute portfolio Sharpe ratio from weighted historical returns
+    sharpe_ratio = _compute_portfolio_sharpe(enriched_positions, total_mv, provider)
 
     pnl = total_mv - total_cost
     day_pnl_pct = round((total_day_pnl / (total_mv - total_day_pnl)) * 100, 2) if (total_mv - total_day_pnl) != 0 and total_day_pnl != 0 else None
@@ -280,21 +241,10 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
             "vega": round(port_vega, 2),
             "beta_weighted_delta": beta_weighted_delta,
         },
+        "sharpe_ratio": sharpe_ratio,
         "risk_flags": risk_flags,
         "sector_breakdown": sector_breakdown,
         "concentration": concentration,
-        # Row 2: Time & Expiry Risk
-        "weighted_avg_dte": round(weighted_avg_dte, 1) if weighted_avg_dte is not None else None,
-        "pct_expiring_30d": round(pct_expiring_30d, 2) if pct_expiring_30d is not None else None,
-        "pct_expiring_14d": round(pct_expiring_14d, 2) if pct_expiring_14d is not None else None,
-        "five_day_theta_dollars": round(five_day_theta_dollars, 2),
-        "five_day_theta_pct": round(five_day_theta_pct, 2) if five_day_theta_pct is not None else None,
-        "gamma_per_1pct": round(gamma_price_sum, 2),
-        "options_pnl": round(options_pnl, 2),
-        # Row 3: Scenario & Stress
-        "iv_stress_minus5": round(iv_stress_minus5, 2),
-        "iv_stress_plus5": round(iv_stress_plus5, 2),
-        "seven_day_theta": round(seven_day_theta, 2),
     }
 
     return {"positions": enriched_positions, "metrics": metrics}
@@ -394,3 +344,69 @@ def _compute_risk_flags(positions: list[dict]) -> list[str]:
             flags.append(f"{c} positions in {s} sector")
 
     return flags
+
+
+def _compute_portfolio_sharpe(
+    enriched_positions: list[dict], total_mv: float, provider: Any
+) -> Optional[float]:
+    """Compute annualised Sharpe ratio from 60-day weighted portfolio returns.
+
+    Uses each stock position's historical daily returns, weighted by current
+    portfolio weight.  Options are skipped (their P&L is path-dependent and
+    not captured well by underlying returns alone).
+    """
+    if total_mv <= 0:
+        return None
+
+    # Collect weights for stock positions only
+    ticker_weights: dict[str, float] = {}
+    for ep in enriched_positions:
+        if ep["asset_type"] == "stock" and ep.get("market_value"):
+            t = ep["ticker"]
+            ticker_weights[t] = ticker_weights.get(t, 0) + ep["market_value"]
+    stock_mv = sum(ticker_weights.values())
+    if stock_mv <= 0:
+        return None
+    # Normalise weights so they sum to 1
+    for t in ticker_weights:
+        ticker_weights[t] /= stock_mv
+
+    # Fetch 90-day history for each ticker (gives us ~60 trading days)
+    histories: dict[str, list[float]] = {}
+    for t in ticker_weights:
+        try:
+            hist = provider.get_history(t, period="3mo", interval="1d")
+            closes = [bar["close"] for bar in hist if bar.get("close")]
+            if len(closes) >= 20:
+                # daily returns
+                rets = [(closes[i] / closes[i - 1]) - 1 for i in range(1, len(closes))]
+                histories[t] = rets
+        except Exception:
+            continue
+
+    if not histories:
+        return None
+
+    # Use the shortest common length
+    min_len = min(len(r) for r in histories.values())
+    if min_len < 15:
+        return None
+
+    # Compute portfolio daily returns
+    import statistics
+    port_returns = []
+    for i in range(min_len):
+        day_ret = sum(
+            ticker_weights[t] * histories[t][-(min_len - i)]
+            for t in histories
+        )
+        port_returns.append(day_ret)
+
+    mean_ret = statistics.mean(port_returns)
+    std_ret = statistics.stdev(port_returns) if len(port_returns) > 1 else 0
+    if std_ret <= 0:
+        return None
+
+    # Annualise: Sharpe = (mean_daily / std_daily) * sqrt(252)
+    sharpe = (mean_ret / std_ret) * math.sqrt(252)
+    return round(sharpe, 2)

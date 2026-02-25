@@ -1,13 +1,22 @@
-/* ===== Tab Bar (centered segmented control) ===== */
+/* ===== Tab Bar ===== */
 .tab-bar {
-  display: flex;
-  justify-content: center;
   background: var(--bg-primary);
   border-bottom: 1px solid var(--border);
   padding: 12px 24px;
   position: sticky;
   top: 0;
   z-index: 100;
+  display: flex;
+  justify-content: center;
+}
+
+.tab-bar-container {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  max-width: 1200px;
 }
 
 .tab-bar-inner {
@@ -25,7 +34,7 @@
   color: var(--text-secondary);
   font-size: 14px;
   font-weight: 500;
-  padding: 8px 24px;
+  padding: 8px 28px;
   cursor: pointer;
   border-radius: 8px;
   transition: color 0.15s, background 0.15s;
@@ -40,6 +49,45 @@
   color: var(--text-primary);
   background: var(--bg-tertiary);
   font-weight: 600;
+}
+
+/* Market status indicator */
+.market-status {
+  position: absolute;
+  right: 0;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 14px;
+  border-radius: 20px;
+  background: var(--bg-secondary);
+  border: 1px solid var(--border);
+  flex-shrink: 0;
+}
+
+.market-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.market-dot.open {
+  background: #22c55e;
+  box-shadow: 0 0 6px rgba(34, 197, 94, 0.5);
+}
+
+.market-dot.closed {
+  background: var(--accent-red);
+  box-shadow: 0 0 6px rgba(192, 57, 43, 0.4);
+}
+
+.market-label {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-secondary);
+  white-space: nowrap;
+  letter-spacing: 0.3px;
 }
 
 /* ===== Dashboard ===== */
@@ -783,11 +831,58 @@
   margin-bottom: 12px;
 }
 
-.analytics-grid {
+.analytics-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin-bottom: 12px;
+  background: var(--bg-tertiary);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  overflow: hidden;
+}
+
+.analytics-stat {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 10px 14px;
+  min-width: 0;
+  flex: 1;
+  border-right: 1px solid var(--border);
+}
+
+.analytics-stat:last-child {
+  border-right: none;
+}
+
+.analytics-stat-label {
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--text-muted);
+  text-transform: uppercase;
+  letter-spacing: 0.3px;
+  margin-bottom: 2px;
+}
+
+.analytics-stat-value {
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.analytics-stat-sub {
+  font-size: 10px;
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.analytics-charts-row {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 12px;
-  margin-bottom: 16px;
+  margin-bottom: 12px;
 }
 
 .analytics-card {
@@ -798,26 +893,25 @@
 }
 
 .analytics-card-label {
-  font-size: 11px;
+  font-size: 10px;
   font-weight: 600;
   color: var(--text-muted);
   text-transform: uppercase;
   letter-spacing: 0.5px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 
 .analytics-chart-card {
   background: var(--bg-tertiary);
   border: 1px solid var(--border);
   border-radius: 10px;
-  padding: 14px 16px;
-  margin-bottom: 12px;
+  padding: 10px 14px;
 }
 
 .expected-moves-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 6px;
 }
 
 .expected-move-badge {
@@ -826,38 +920,38 @@
   align-items: center;
   background: var(--bg-secondary);
   border: 1px solid var(--border);
-  border-radius: 8px;
-  padding: 8px 12px;
-  min-width: 72px;
+  border-radius: 6px;
+  padding: 5px 10px;
+  min-width: 60px;
 }
 
 .em-expiry {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-muted);
   font-weight: 600;
 }
 
 .em-pct {
-  font-size: 16px;
+  font-size: 14px;
   font-weight: 700;
   color: var(--accent-cyan);
 }
 
 .em-dollar {
-  font-size: 11px;
+  font-size: 10px;
   color: var(--text-secondary);
 }
 
 .flow-summary {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 3px;
 }
 
 .flow-row {
   display: flex;
   justify-content: space-between;
-  font-size: 13px;
+  font-size: 12px;
   color: var(--text-secondary);
 }
 
@@ -884,9 +978,9 @@
 .unusual-row {
   display: flex;
   gap: 8px;
-  font-size: 12px;
+  font-size: 11px;
   color: var(--text-secondary);
-  padding: 3px 0;
+  padding: 2px 0;
 }
 
 .analytics-error {
@@ -896,7 +990,14 @@
 }
 
 @media (max-width: 640px) {
-  .analytics-grid {
+  .analytics-strip {
+    flex-wrap: wrap;
+  }
+  .analytics-stat {
+    flex: 0 0 33%;
+    border-bottom: 1px solid var(--border);
+  }
+  .analytics-charts-row {
     grid-template-columns: 1fr;
   }
 }
@@ -2351,6 +2452,7 @@ input[type="range"]::-moz-range-thumb {
 .color-cyan { color: var(--accent-cyan); }
 .color-green { color: var(--accent-green); }
 .color-red { color: var(--accent-red); }
+.color-green { color: var(--accent-green); }
 
 /* Leverage Card */
 .leverage-card {

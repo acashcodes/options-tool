@@ -200,20 +200,22 @@ export default function PortfolioTab({ onNavigateToAnalysis }) {
               color={m.day_pnl >= 0 ? 'green' : 'red'}
             />
             <MetricCard
-              label="Delta"
+              label="Delta ($)"
               value={fmtGreek(m.greeks?.delta)}
+              sub={deltaContext(m.greeks?.delta)}
               color={m.greeks?.delta > 0 ? 'cyan' : m.greeks?.delta < 0 ? 'red' : null}
             />
             <MetricCard
-              label="Theta"
-              value={fmtGreek(m.greeks?.theta)}
-              sub={m.greeks?.theta != null ? `${fmtGreek(m.greeks.theta * 7)}/wk` : null}
+              label="Theta ($/wk)"
+              value={m.greeks?.theta != null ? fmtGreek(m.greeks.theta * 7) : '\u2014'}
+              sub={thetaContext(m.greeks?.theta)}
               color={m.greeks?.theta < 0 ? 'red' : 'cyan'}
             />
             <MetricCard
               label="Sharpe"
-              value={computeSharpe(m)}
-              color={sharpeColor(m)}
+              value={m.sharpe_ratio != null ? m.sharpe_ratio.toFixed(2) : '\u2014'}
+              sub={sharpeContext(m.sharpe_ratio)}
+              color={m.sharpe_ratio != null ? (m.sharpe_ratio >= 1 ? 'green' : m.sharpe_ratio >= 0 ? 'cyan' : 'red') : null}
             />
           </div>
 
@@ -355,7 +357,10 @@ function fmtPnl(v) {
 
 function fmtGreek(v) {
   if (v == null) return '\u2014';
-  return `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
+  const num = Number(v);
+  const sign = num >= 0 ? '+' : '\u2212';
+  const abs = Math.abs(num);
+  return `${sign}$${abs.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 }
 
 function gammaGauge(v) {
@@ -366,22 +371,26 @@ function gammaGauge(v) {
   return 'High';
 }
 
-function computeSharpe(m) {
-  if (!m || m.day_pnl_percent == null || m.total_market_value == null) return '\u2014';
-  const dailyRet = m.day_pnl_percent / 100;
-  const annRet = dailyRet * 252;
-  const dayVol = Math.abs(dailyRet) || 0.01;
-  const annVol = dayVol * Math.sqrt(252);
-  const sharpe = annVol > 0 ? annRet / annVol : 0;
-  return sharpe.toFixed(2);
+function deltaContext(v) {
+  if (v == null) return null;
+  const move = Math.abs(v * 0.01);
+  const fmtMove = move.toLocaleString('en-US', { maximumFractionDigits: 0 });
+  if (v > 0) return `+$${fmtMove} per 1% up`;
+  if (v < 0) return `-$${fmtMove} per 1% up`;
+  return 'Market-neutral';
 }
 
-function sharpeColor(m) {
-  if (!m || m.day_pnl_percent == null) return null;
-  const dailyRet = m.day_pnl_percent / 100;
-  const annRet = dailyRet * 252;
-  const dayVol = Math.abs(dailyRet) || 0.01;
-  const annVol = dayVol * Math.sqrt(252);
-  const sharpe = annVol > 0 ? annRet / annVol : 0;
-  return sharpe >= 1 ? 'green' : sharpe >= 0 ? 'cyan' : 'red';
+function thetaContext(dailyTheta) {
+  if (dailyTheta == null) return null;
+  if (dailyTheta < 0) return 'Time decay cost';
+  if (dailyTheta > 0) return 'Collecting decay';
+  return null;
+}
+
+function sharpeContext(v) {
+  if (v == null) return '60-day rolling';
+  if (v >= 2) return 'Excellent';
+  if (v >= 1) return 'Good';
+  if (v >= 0) return 'Below average';
+  return 'Negative returns';
 }

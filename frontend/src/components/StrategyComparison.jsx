@@ -214,27 +214,27 @@ export default function StrategyComparison({ slotA, slotB, currentPrice, quote, 
       <div className="comparison-chart-container">
         <ResponsiveContainer width="100%" height={380}>
           <ComposedChart data={mergedData} margin={{ top: 10, right: 30, left: 10, bottom: 30 }}>
-            <CartesianGrid stroke="#1a1a2e" strokeDasharray="3 3" />
+            <CartesianGrid stroke="#e0e0e8" strokeDasharray="3 3" />
             <XAxis
               dataKey="price"
               type="number"
               domain={['dataMin', 'dataMax']}
-              tick={{ fill: '#5a5a72', fontSize: 11 }}
+              tick={{ fill: '#6a6a7a', fontSize: 11 }}
               tickFormatter={(v) => `$${v.toFixed(0)}`}
-              stroke="#2a2a3e"
+              stroke="#c5cad6"
             >
-              <Label value="Stock Price at Expiration" position="bottom" offset={10} fill="#5a5a72" fontSize={11} />
+              <Label value="Stock Price at Expiration" position="bottom" offset={10} fill="#6a6a7a" fontSize={11} />
             </XAxis>
             <YAxis
-              tick={{ fill: '#5a5a72', fontSize: 11 }}
+              tick={{ fill: '#6a6a7a', fontSize: 11 }}
               tickFormatter={(v) => fmtCompact(v)}
-              stroke="#2a2a3e"
+              stroke="#c5cad6"
             >
-              <Label value="Profit / Loss ($)" angle={-90} position="insideLeft" offset={0} fill="#5a5a72" fontSize={11} style={{ textAnchor: 'middle' }} />
+              <Label value="Profit / Loss ($)" angle={-90} position="insideLeft" offset={0} fill="#6a6a7a" fontSize={11} style={{ textAnchor: 'middle' }} />
             </YAxis>
             <Tooltip content={<CustomTooltip />} />
-            <ReferenceLine y={0} stroke="#3a3a52" strokeWidth={1} />
-            <ReferenceLine x={currentPrice} stroke="#5a5a72" strokeDasharray="6 4" />
+            <ReferenceLine y={0} stroke="#b0b0c0" strokeWidth={1} />
+            <ReferenceLine x={currentPrice} stroke="#9a9ab0" strokeDasharray="6 4" />
             <Line type="monotone" dataKey="plA" name="Strategy A" stroke="#00d4aa" strokeWidth={2} dot={false} isAnimationActive={false} connectNulls />
             <Line type="monotone" dataKey="plB" name="Strategy B" stroke="#2563eb" strokeWidth={2} dot={false} isAnimationActive={false} connectNulls />
           </ComposedChart>
