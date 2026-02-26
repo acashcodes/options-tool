@@ -1,8 +1,10 @@
-"""Strategy Recommender – rebuilt per recommendation_engine.md spec.
+"""Strategy Recommender – aligned with canonical strategy_engine.
 
 Deterministic engine that evaluates option strategies based on user-defined
 target price and date, computes payoff at target at expiration, and ranks
 by capital efficiency (risk-reward = payoff_at_target / capital_required).
+
+All payoff/metrics math defers to strategy_engine for consistency.
 """
 
 from __future__ import annotations
@@ -15,6 +17,17 @@ from fastapi import APIRouter
 from pydantic import BaseModel
 
 from data_provider.base import DataProvider
+from strategy_engine.models import StrategyLeg
+from strategy_engine.payoff import strategy_payoff_at_expiration
+from strategy_engine.metrics import (
+    compute_breakevens,
+    compute_max_profit_loss,
+    compute_capital_required,
+    compute_risk_reward,
+)
+from strategy_engine.pricing import mark_price, entry_fill_price, leg_entry_cashflow
+from strategy_engine.curve import expiration_curve
+from formatting import money
 
 
 # ── API ─────────────────────────────────────────────────────
@@ -24,6 +37,8 @@ class RecommendRequest(BaseModel):
     ticker: str
     target_price: float
     target_date: str  # YYYY-MM-DD
+    pricing_mode: str = "mid"
+    slippage_pct: float = 0.0
 
 
 def create_recommender_routes(provider: DataProvider) -> APIRouter:
@@ -34,6 +49,8 @@ def create_recommender_routes(provider: DataProvider) -> APIRouter:
         try:
             results, direction, expiration_used = _recommend(
                 provider, req.ticker, req.target_price, req.target_date,
+                pricing_mode=req.pricing_mode,
+                slippage_pct=req.slippage_pct,
             )
             return {
                 "recommendations": results,
@@ -52,7 +69,8 @@ def create_recommender_routes(provider: DataProvider) -> APIRouter:
 # ── Core Engine ──────────────────────────────────────────────
 
 
-def _recommend(provider, ticker, target_price, target_date):
+def _recommend(provider, ticker, target_price, target_date,
+               pricing_mode="mid", slippage_pct=0.0):
     ticker = ticker.upper()
     quote = provider.get_quote(ticker)
     current_price = quote.get("price")
@@ -74,11 +92,11 @@ def _recommend(provider, ticker, target_price, target_date):
     # ── 2. Load chain, filter for liquidity ──
     chain = provider.get_options_chain(ticker, best_exp)
     calls = sorted(
-        [c for c in chain.get("calls", []) if _liquid(c) and _mid(c) > 0],
+        [c for c in chain.get("calls", []) if _liquid(c) and _get_mid(c) > 0],
         key=lambda c: c["strike"],
     )
     puts = sorted(
-        [p for p in chain.get("puts", []) if _liquid(p) and _mid(p) > 0],
+        [p for p in chain.get("puts", []) if _liquid(p) and _get_mid(p) > 0],
         key=lambda p: p["strike"],
     )
     if not calls and not puts:
@@ -96,19 +114,19 @@ def _recommend(provider, ticker, target_price, target_date):
     candidates = []
     if direction == "bullish":
         if calls:
-            candidates += _gen_long_calls(calls, current_price, target_price, best_exp)
-            candidates += _gen_call_debit_spreads(calls, current_price, target_price, best_exp)
+            candidates += _gen_long_calls(calls, current_price, target_price, best_exp, pricing_mode, slippage_pct)
+            candidates += _gen_call_debit_spreads(calls, current_price, target_price, best_exp, pricing_mode, slippage_pct)
         if puts:
-            candidates += _gen_put_credit_spreads(puts, current_price, target_price, best_exp)
+            candidates += _gen_put_credit_spreads(puts, current_price, target_price, best_exp, pricing_mode, slippage_pct)
     elif direction == "bearish":
         if puts:
-            candidates += _gen_long_puts(puts, current_price, target_price, best_exp)
-            candidates += _gen_put_debit_spreads(puts, current_price, target_price, best_exp)
+            candidates += _gen_long_puts(puts, current_price, target_price, best_exp, pricing_mode, slippage_pct)
+            candidates += _gen_put_debit_spreads(puts, current_price, target_price, best_exp, pricing_mode, slippage_pct)
         if calls:
-            candidates += _gen_call_credit_spreads(calls, current_price, target_price, best_exp)
+            candidates += _gen_call_credit_spreads(calls, current_price, target_price, best_exp, pricing_mode, slippage_pct)
     else:  # neutral
         if calls and puts:
-            candidates += _gen_iron_condors(calls, puts, current_price, target_price, best_exp)
+            candidates += _gen_iron_condors(calls, puts, current_price, target_price, best_exp, pricing_mode, slippage_pct)
 
     # ── 5. Filter: payoff must be > 0 and capital must be > 0 ──
     valid = [c for c in candidates if c["payoff_at_target"] > 0 and c["capital_required"] > 0]
@@ -119,309 +137,267 @@ def _recommend(provider, ticker, target_price, target_date):
     # ── 7. Return top 5 with payoff curves ──
     top = valid[:5]
     for item in top:
-        item["curve"] = _payoff_curve(item["legs"], current_price, target_price)
+        # Use canonical curve generation
+        strategy_legs = _to_strategy_legs(item["legs"], best_exp)
+        curve_data = expiration_curve(strategy_legs, current_price, points=50)
+        item["curve"] = [{"price": money(p["price"]), "pl": money(p["pl"])} for p in curve_data]
         item["current_price"] = current_price
         item["ticker"] = ticker
 
     return top, direction, best_exp
 
 
+# ── Canonical engine integration ─────────────────────────────
+
+
+def _to_strategy_legs(ui_legs: list[dict], expiration: str) -> list[StrategyLeg]:
+    """Convert recommender UI leg dicts to canonical StrategyLeg models."""
+    result = []
+    for leg in ui_legs:
+        result.append(StrategyLeg(
+            instrument="option",
+            option_type="call" if leg["type"] == "Call" else "put",
+            action=leg["action"],
+            quantity=leg["quantity"],
+            strike=leg["strike"],
+            expiration=leg.get("expiration", expiration),
+            iv=leg.get("iv"),
+            multiplier=100,
+            entry_price=leg["premium"],
+            bid=leg.get("bid"),
+            ask=leg.get("ask"),
+        ))
+    return result
+
+
+def _compute_canonical_metrics(ui_legs: list[dict], current_price: float, target_price: float,
+                                expiration: str) -> dict:
+    """Use canonical strategy_engine to compute metrics for a set of legs."""
+    strategy_legs = _to_strategy_legs(ui_legs, expiration)
+
+    # Payoff at target
+    payoff_at_target = strategy_payoff_at_expiration(strategy_legs, target_price)
+
+    # Canonical metrics
+    max_profit, max_loss = compute_max_profit_loss(strategy_legs, current_price)
+    breakevens = compute_breakevens(strategy_legs, current_price)
+    total_entry_cf = sum(leg_entry_cashflow(leg) for leg in strategy_legs)
+    capital, requires_margin, capital_method = compute_capital_required(max_loss, total_entry_cf)
+
+    # Risk/reward based on payoff at target vs capital
+    if capital > 0 and payoff_at_target > 0:
+        rr = payoff_at_target / capital
+    else:
+        rr = 0.0
+
+    return {
+        "payoff_at_target": money(payoff_at_target),
+        "max_profit": money(max_profit) if max_profit is not None else None,
+        "max_loss": money(max_loss) if max_loss is not None else None,
+        "breakevens": [money(be) for be in breakevens],
+        "capital_required": money(capital),
+        "requires_margin": requires_margin,
+        "net_premium": money(total_entry_cf),
+        "risk_reward": money(rr, 2) if rr else 0.0,
+    }
+
+
 # ── Strategy Generators ──────────────────────────────────────
 
 
-def _gen_long_calls(calls, S0, St, exp):
-    """Long Call: evaluate strikes from ATM to moderately OTM."""
+def _gen_long_calls(calls, S0, St, exp, pricing_mode, slippage_pct):
     results = []
     for opt in calls:
         K = opt["strike"]
         if K < S0 * 0.85 or K > S0 * 2.0:
             continue
-        prem = _mid(opt)
-        # Payoff = max(St - K, 0) - Premium
-        payoff_ps = max(St - K, 0) - prem
-        capital_ps = prem
-        if payoff_ps <= 0 or capital_ps <= 0:
+        prem = _fill_price(opt, "buy", pricing_mode, slippage_pct)
+        if prem <= 0:
             continue
 
-        payoff = round(payoff_ps * 100, 2)
-        capital = round(capital_ps * 100, 2)
-        rr = round(payoff / capital, 2)
+        legs = [_make_leg("Call", opt, "buy", exp, prem)]
+        metrics = _compute_canonical_metrics(legs, S0, St, exp)
+        if metrics["payoff_at_target"] <= 0 or metrics["capital_required"] <= 0:
+            continue
 
         results.append({
             "name": f"Long ${K:g} Call",
             "strategy_type": "Long Call",
-            "legs": [_make_leg("Call", opt, "buy", exp)],
+            "legs": legs,
             "expiration": exp,
             "strikes": [K],
-            "net_premium": round(-capital, 2),
-            "capital_required": capital,
-            "payoff_at_target": payoff,
-            "risk_reward": rr,
-            "max_profit": None,  # Unlimited — NEVER capped
-            "max_loss": round(-capital, 2),
-            "breakevens": [round(K + prem, 2)],
+            **metrics,
         })
     return results
 
 
-def _gen_long_puts(puts, S0, St, exp):
-    """Long Put: evaluate strikes from ATM to moderately OTM."""
+def _gen_long_puts(puts, S0, St, exp, pricing_mode, slippage_pct):
     results = []
     for opt in puts:
         K = opt["strike"]
         if K < S0 * 0.01 or K > S0 * 1.15:
             continue
-        prem = _mid(opt)
-        # Payoff = max(K - St, 0) - Premium
-        payoff_ps = max(K - St, 0) - prem
-        capital_ps = prem
-        if payoff_ps <= 0 or capital_ps <= 0:
+        prem = _fill_price(opt, "buy", pricing_mode, slippage_pct)
+        if prem <= 0:
             continue
 
-        payoff = round(payoff_ps * 100, 2)
-        capital = round(capital_ps * 100, 2)
-        max_profit_ps = K - prem  # stock goes to 0
-        rr = round(payoff / capital, 2)
+        legs = [_make_leg("Put", opt, "buy", exp, prem)]
+        metrics = _compute_canonical_metrics(legs, S0, St, exp)
+        if metrics["payoff_at_target"] <= 0 or metrics["capital_required"] <= 0:
+            continue
 
         results.append({
             "name": f"Long ${K:g} Put",
             "strategy_type": "Long Put",
-            "legs": [_make_leg("Put", opt, "buy", exp)],
+            "legs": legs,
             "expiration": exp,
             "strikes": [K],
-            "net_premium": round(-capital, 2),
-            "capital_required": capital,
-            "payoff_at_target": payoff,
-            "risk_reward": rr,
-            "max_profit": round(max_profit_ps * 100, 2),
-            "max_loss": round(-capital, 2),
-            "breakevens": [round(K - prem, 2)],
+            **metrics,
         })
     return results
 
 
-def _gen_call_debit_spreads(calls, S0, St, exp):
-    """Call Debit Spread (bullish): buy lower K1, sell higher K2.
-
-    K1 near ATM, K2 near/above target.
-    """
+def _gen_call_debit_spreads(calls, S0, St, exp, pricing_mode, slippage_pct):
     results = []
     buys = _subsample([c for c in calls if S0 * 0.85 <= c["strike"] <= S0 * 1.15], 10)
     sells = _subsample([c for c in calls if S0 * 0.85 <= c["strike"] <= S0 * 2.0], 12)
 
     for buy_opt in buys:
         K1 = buy_opt["strike"]
-        prem1 = _mid(buy_opt)
+        prem1 = _fill_price(buy_opt, "buy", pricing_mode, slippage_pct)
         for sell_opt in sells:
             K2 = sell_opt["strike"]
             if K2 <= K1:
                 continue
-            prem2 = _mid(sell_opt)
-            net_debit = prem1 - prem2
-            if net_debit <= 0:
+            prem2 = _fill_price(sell_opt, "sell", pricing_mode, slippage_pct)
+            if prem1 - prem2 <= 0:
                 continue
 
-            width = K2 - K1
-            # SpreadValue = min(max(St - K1, 0), Width)
-            spread_val = min(max(St - K1, 0), width)
-            payoff_ps = spread_val - net_debit
-            if payoff_ps <= 0:
+            legs = [
+                _make_leg("Call", buy_opt, "buy", exp, prem1),
+                _make_leg("Call", sell_opt, "sell", exp, prem2),
+            ]
+            metrics = _compute_canonical_metrics(legs, S0, St, exp)
+            if metrics["payoff_at_target"] <= 0 or metrics["capital_required"] <= 0:
                 continue
-
-            payoff = round(payoff_ps * 100, 2)
-            capital = round(net_debit * 100, 2)
-            rr = round(payoff / capital, 2)
-            max_profit = round((width - net_debit) * 100, 2)
 
             results.append({
                 "name": f"Call Spread ${K1:g}/${K2:g}",
                 "strategy_type": "Call Debit Spread",
-                "legs": [
-                    _make_leg("Call", buy_opt, "buy", exp),
-                    _make_leg("Call", sell_opt, "sell", exp),
-                ],
+                "legs": legs,
                 "expiration": exp,
                 "strikes": [K1, K2],
-                "net_premium": round(-capital, 2),
-                "capital_required": capital,
-                "payoff_at_target": payoff,
-                "risk_reward": rr,
-                "max_profit": max_profit,
-                "max_loss": round(-capital, 2),
-                "breakevens": [round(K1 + net_debit, 2)],
+                **metrics,
             })
     return results
 
 
-def _gen_put_debit_spreads(puts, S0, St, exp):
-    """Put Debit Spread (bearish): buy higher K1, sell lower K2.
-
-    K1 near ATM, K2 near/below target.
-    """
+def _gen_put_debit_spreads(puts, S0, St, exp, pricing_mode, slippage_pct):
     results = []
     buys = _subsample([p for p in puts if S0 * 0.85 <= p["strike"] <= S0 * 1.15], 10)
     sells = _subsample([p for p in puts if S0 * 0.01 <= p["strike"] <= S0 * 1.15], 12)
 
     for buy_opt in buys:
         K1 = buy_opt["strike"]
-        prem1 = _mid(buy_opt)
+        prem1 = _fill_price(buy_opt, "buy", pricing_mode, slippage_pct)
         for sell_opt in sells:
             K2 = sell_opt["strike"]
             if K2 >= K1:
                 continue
-            prem2 = _mid(sell_opt)
-            net_debit = prem1 - prem2
-            if net_debit <= 0:
+            prem2 = _fill_price(sell_opt, "sell", pricing_mode, slippage_pct)
+            if prem1 - prem2 <= 0:
                 continue
 
-            width = K1 - K2
-            # SpreadValue = min(max(K1 - St, 0), Width)
-            spread_val = min(max(K1 - St, 0), width)
-            payoff_ps = spread_val - net_debit
-            if payoff_ps <= 0:
+            legs = [
+                _make_leg("Put", buy_opt, "buy", exp, prem1),
+                _make_leg("Put", sell_opt, "sell", exp, prem2),
+            ]
+            metrics = _compute_canonical_metrics(legs, S0, St, exp)
+            if metrics["payoff_at_target"] <= 0 or metrics["capital_required"] <= 0:
                 continue
-
-            payoff = round(payoff_ps * 100, 2)
-            capital = round(net_debit * 100, 2)
-            rr = round(payoff / capital, 2)
-            max_profit = round((width - net_debit) * 100, 2)
 
             results.append({
                 "name": f"Put Spread ${K1:g}/${K2:g}",
                 "strategy_type": "Put Debit Spread",
-                "legs": [
-                    _make_leg("Put", buy_opt, "buy", exp),
-                    _make_leg("Put", sell_opt, "sell", exp),
-                ],
+                "legs": legs,
                 "expiration": exp,
                 "strikes": [K1, K2],
-                "net_premium": round(-capital, 2),
-                "capital_required": capital,
-                "payoff_at_target": payoff,
-                "risk_reward": rr,
-                "max_profit": max_profit,
-                "max_loss": round(-capital, 2),
-                "breakevens": [round(K1 - net_debit, 2)],
+                **metrics,
             })
     return results
 
 
-def _gen_call_credit_spreads(calls, S0, St, exp):
-    """Call Credit Spread (bearish): sell lower K1, buy higher K2.
-
-    Sell strike near/just above target (which is below current for bearish).
-    """
+def _gen_call_credit_spreads(calls, S0, St, exp, pricing_mode, slippage_pct):
     results = []
     sells = _subsample([c for c in calls if S0 * 0.85 <= c["strike"] <= S0 * 2.0], 10)
     buys = _subsample([c for c in calls if c["strike"] >= S0 * 0.85], 12)
 
     for sell_opt in sells:
         K1 = sell_opt["strike"]
-        prem1 = _mid(sell_opt)
+        prem1 = _fill_price(sell_opt, "sell", pricing_mode, slippage_pct)
         for buy_opt in buys:
             K2 = buy_opt["strike"]
             if K2 <= K1:
                 continue
-            prem2 = _mid(buy_opt)
-            net_credit = prem1 - prem2
-            if net_credit <= 0:
+            prem2 = _fill_price(buy_opt, "buy", pricing_mode, slippage_pct)
+            if prem1 - prem2 <= 0:
                 continue
 
-            width = K2 - K1
-            max_loss_ps = width - net_credit
-            if max_loss_ps <= 0:
+            legs = [
+                _make_leg("Call", sell_opt, "sell", exp, prem1),
+                _make_leg("Call", buy_opt, "buy", exp, prem2),
+            ]
+            metrics = _compute_canonical_metrics(legs, S0, St, exp)
+            if metrics["payoff_at_target"] <= 0 or metrics["capital_required"] <= 0:
                 continue
-
-            # Payoff = NetCredit - min(max(St - K1, 0), Width)
-            intrinsic_loss = max(St - K1, 0)
-            actual_loss = min(intrinsic_loss, width)
-            payoff_ps = net_credit - actual_loss
-            if payoff_ps <= 0:
-                continue
-
-            payoff = round(payoff_ps * 100, 2)
-            capital = round(max_loss_ps * 100, 2)
-            rr = round(payoff / capital, 2)
 
             results.append({
                 "name": f"Call Credit ${K1:g}/${K2:g}",
                 "strategy_type": "Call Credit Spread",
-                "legs": [
-                    _make_leg("Call", sell_opt, "sell", exp),
-                    _make_leg("Call", buy_opt, "buy", exp),
-                ],
+                "legs": legs,
                 "expiration": exp,
                 "strikes": [K1, K2],
-                "net_premium": round(net_credit * 100, 2),
-                "capital_required": capital,
-                "payoff_at_target": payoff,
-                "risk_reward": rr,
-                "max_profit": round(net_credit * 100, 2),
-                "max_loss": round(-capital, 2),
-                "breakevens": [round(K1 + net_credit, 2)],
+                **metrics,
             })
     return results
 
 
-def _gen_put_credit_spreads(puts, S0, St, exp):
-    """Put Credit Spread (bullish): sell higher K1, buy lower K2.
-
-    Sell strike just below current price.
-    """
+def _gen_put_credit_spreads(puts, S0, St, exp, pricing_mode, slippage_pct):
     results = []
     sells = _subsample([p for p in puts if S0 * 0.01 <= p["strike"] <= S0 * 1.10], 10)
     buys = _subsample([p for p in puts if p["strike"] <= S0 * 1.10], 12)
 
     for sell_opt in sells:
         K1 = sell_opt["strike"]
-        prem1 = _mid(sell_opt)
+        prem1 = _fill_price(sell_opt, "sell", pricing_mode, slippage_pct)
         for buy_opt in buys:
             K2 = buy_opt["strike"]
             if K2 >= K1:
                 continue
-            prem2 = _mid(buy_opt)
-            net_credit = prem1 - prem2
-            if net_credit <= 0:
+            prem2 = _fill_price(buy_opt, "buy", pricing_mode, slippage_pct)
+            if prem1 - prem2 <= 0:
                 continue
 
-            width = K1 - K2
-            max_loss_ps = width - net_credit
-            if max_loss_ps <= 0:
+            legs = [
+                _make_leg("Put", sell_opt, "sell", exp, prem1),
+                _make_leg("Put", buy_opt, "buy", exp, prem2),
+            ]
+            metrics = _compute_canonical_metrics(legs, S0, St, exp)
+            if metrics["payoff_at_target"] <= 0 or metrics["capital_required"] <= 0:
                 continue
-
-            # Payoff = NetCredit - min(max(K1 - St, 0), Width)
-            intrinsic_loss = max(K1 - St, 0)
-            actual_loss = min(intrinsic_loss, width)
-            payoff_ps = net_credit - actual_loss
-            if payoff_ps <= 0:
-                continue
-
-            payoff = round(payoff_ps * 100, 2)
-            capital = round(max_loss_ps * 100, 2)
-            rr = round(payoff / capital, 2)
 
             results.append({
                 "name": f"Put Credit ${K2:g}/${K1:g}",
                 "strategy_type": "Put Credit Spread",
-                "legs": [
-                    _make_leg("Put", sell_opt, "sell", exp),
-                    _make_leg("Put", buy_opt, "buy", exp),
-                ],
+                "legs": legs,
                 "expiration": exp,
                 "strikes": [K2, K1],
-                "net_premium": round(net_credit * 100, 2),
-                "capital_required": capital,
-                "payoff_at_target": payoff,
-                "risk_reward": rr,
-                "max_profit": round(net_credit * 100, 2),
-                "max_loss": round(-capital, 2),
-                "breakevens": [round(K1 - net_credit, 2)],
+                **metrics,
             })
     return results
 
 
-def _gen_iron_condors(calls, puts, S0, St, exp):
-    """Iron Condor (neutral): sell put spread below + sell call spread above."""
+def _gen_iron_condors(calls, puts, S0, St, exp, pricing_mode, slippage_pct):
     results = []
     for wing_pct in [0.03, 0.05, 0.08, 0.12, 0.20, 0.30]:
         sp = _nearest(puts, S0 * (1 - wing_pct))
@@ -432,50 +408,33 @@ def _gen_iron_condors(calls, puts, S0, St, exp):
         if sp["strike"] <= bp["strike"] or bc["strike"] <= sc["strike"]:
             continue
 
-        net_credit = (_mid(sp) + _mid(sc)) - (_mid(bp) + _mid(bc))
+        prem_bp = _fill_price(bp, "buy", pricing_mode, slippage_pct)
+        prem_sp = _fill_price(sp, "sell", pricing_mode, slippage_pct)
+        prem_sc = _fill_price(sc, "sell", pricing_mode, slippage_pct)
+        prem_bc = _fill_price(bc, "buy", pricing_mode, slippage_pct)
+
+        net_credit = (prem_sp + prem_sc) - (prem_bp + prem_bc)
         if net_credit <= 0:
             continue
 
-        put_width = sp["strike"] - bp["strike"]
-        call_width = bc["strike"] - sc["strike"]
-        wider = max(put_width, call_width)
-        max_loss_ps = wider - net_credit
-        if max_loss_ps <= 0:
+        legs = [
+            _make_leg("Put", bp, "buy", exp, prem_bp),
+            _make_leg("Put", sp, "sell", exp, prem_sp),
+            _make_leg("Call", sc, "sell", exp, prem_sc),
+            _make_leg("Call", bc, "buy", exp, prem_bc),
+        ]
+        metrics = _compute_canonical_metrics(legs, S0, St, exp)
+        if metrics["payoff_at_target"] <= 0 or metrics["capital_required"] <= 0:
             continue
 
-        # Payoff at St
-        put_loss = min(max(sp["strike"] - St, 0), put_width)
-        call_loss = min(max(St - sc["strike"], 0), call_width)
-        payoff_ps = net_credit - put_loss - call_loss
-        if payoff_ps <= 0:
-            continue
-
-        payoff = round(payoff_ps * 100, 2)
-        capital = round(max_loss_ps * 100, 2)
-        rr = round(payoff / capital, 2)
         label = f"{wing_pct * 100:.0f}%"
-
         results.append({
             "name": f"Iron Condor ({label} wings)",
             "strategy_type": "Iron Condor",
-            "legs": [
-                _make_leg("Put", bp, "buy", exp),
-                _make_leg("Put", sp, "sell", exp),
-                _make_leg("Call", sc, "sell", exp),
-                _make_leg("Call", bc, "buy", exp),
-            ],
+            "legs": legs,
             "expiration": exp,
             "strikes": [bp["strike"], sp["strike"], sc["strike"], bc["strike"]],
-            "net_premium": round(net_credit * 100, 2),
-            "capital_required": capital,
-            "payoff_at_target": payoff,
-            "risk_reward": rr,
-            "max_profit": round(net_credit * 100, 2),
-            "max_loss": round(-capital, 2),
-            "breakevens": [
-                round(sp["strike"] - net_credit, 2),
-                round(sc["strike"] + net_credit, 2),
-            ],
+            **metrics,
         })
     return results
 
@@ -483,51 +442,32 @@ def _gen_iron_condors(calls, puts, S0, St, exp):
 # ── Helpers ──────────────────────────────────────────────────
 
 
-def _leg_pl(leg, stock_price):
-    """P&L for one leg at expiry (per contract, ×100 multiplier)."""
-    strike = leg["strike"]
-    prem = leg["premium"]
-    qty = leg["quantity"]
-    d = 1 if leg["action"] == "buy" else -1
-    intr = (
-        max(0, stock_price - strike) if leg["type"] == "Call"
-        else max(0, strike - stock_price)
+def _get_mid(opt):
+    """Get mid price from chain option dict. Uses canonical mark_price."""
+    return mark_price(opt.get("bid"), opt.get("ask"), opt.get("last_price")) or 0
+
+
+def _fill_price(opt, action, pricing_mode="mid", slippage_pct=0.0):
+    """Get execution-realistic fill price for a leg."""
+    price = entry_fill_price(
+        action=action,
+        bid=opt.get("bid"),
+        ask=opt.get("ask"),
+        last=opt.get("last_price"),
+        mode=pricing_mode,
+        slippage_pct=slippage_pct,
     )
-    return d * (intr - prem) * 100 * qty
+    return price or 0
 
 
-def _payoff_curve(legs, current_price, target_price=None):
-    """Generate 50-point payoff curve for inline chart."""
-    strikes = [l["strike"] for l in legs]
-    min_s = min(strikes)
-    max_s = max(strikes)
-    spread = max_s - min_s if max_s > min_s else current_price * 0.1
-    padding = max(spread * 1.5, current_price * 0.15)
-    lo = max(0, min(min_s, current_price) - padding)
-    hi = max(max_s, current_price) + padding
-
-    if target_price is not None:
-        tp_padding = abs(target_price - current_price) * 0.15
-        lo = max(0, min(lo, target_price - tp_padding))
-        hi = max(hi, target_price + tp_padding)
-
-    n = 50
-    step = (hi - lo) / n
-    points = []
-    for i in range(n + 1):
-        p = lo + i * step
-        pl = sum(_leg_pl(leg, p) for leg in legs)
-        points.append({"price": round(p, 2), "pl": round(pl, 2)})
-    return points
-
-
-def _make_leg(opt_type, opt, action, exp):
+def _make_leg(opt_type, opt, action, exp, fill_prem=None):
+    prem = fill_prem if fill_prem is not None else _get_mid(opt)
     return {
         "type": opt_type,
         "strike": opt["strike"],
         "action": action,
         "quantity": 1,
-        "premium": _mid(opt),
+        "premium": prem,
         "bid": opt.get("bid"),
         "ask": opt.get("ask"),
         "iv": opt.get("implied_volatility"),
@@ -535,20 +475,30 @@ def _make_leg(opt_type, opt, action, exp):
     }
 
 
-def _mid(opt):
-    bid = opt.get("bid") or 0
-    ask = opt.get("ask") or 0
-    if bid > 0 and ask > 0:
-        return round((bid + ask) / 2, 2)
-    return opt.get("last_price") or 0
-
-
 def _nearest(options, target):
     return min(options, key=lambda o: abs(o["strike"] - target))
 
 
 def _liquid(opt):
-    return (opt.get("bid") or 0) > 0 or (opt.get("open_interest") or 0) > 10
+    """Filter for minimum liquidity. Rejects clearly illiquid options."""
+    bid = opt.get("bid") or 0
+    ask = opt.get("ask") or 0
+    oi = opt.get("open_interest") or 0
+    vol = opt.get("volume") or 0
+
+    # Must have positive bid or reasonable OI
+    if bid <= 0 and oi < 25 and vol < 10:
+        return False
+
+    # Reject if spread is too wide (>20%)
+    if bid > 0 and ask > 0:
+        mid = (bid + ask) / 2
+        if mid > 0:
+            spread_pct = (ask - bid) / mid
+            if spread_pct > 0.20:
+                return False
+
+    return True
 
 
 def _parse_date(s):

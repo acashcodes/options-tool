@@ -17,7 +17,7 @@ function vixColorClass(vixPrice) {
   return 'color-red';
 }
 
-function OverviewItem({ label, data, valueClass, suffix, noSign }) {
+function OverviewItem({ label, data, valueClass, suffix, noSign, prefix }) {
   if (!data || data.price == null) {
     return (
       <div className="market-overview-item">
@@ -30,16 +30,17 @@ function OverviewItem({ label, data, valueClass, suffix, noSign }) {
   const isPositive = data.change >= 0;
   const changeClass = isPositive ? 'color-cyan' : 'color-red';
   const sign = !noSign && isPositive ? '+' : '';
+  const pre = prefix || '';
 
   return (
     <div className="market-overview-item">
       <span className="overview-label">{label}</span>
-      <span className={`overview-price ${valueClass || ''}`}>
-        {data.price.toFixed(2)}{suffix || ''}
+      <span className={`overview-price ${valueClass || changeClass}`}>
+        {pre}{data.price.toFixed(2)}{suffix || ''}
       </span>
       {data.change != null && (
         <span className={`overview-change ${changeClass}`}>
-          {sign}{data.change.toFixed(2)} ({sign}{data.change_percent?.toFixed(2)}%)
+          {sign}{pre}{data.change.toFixed(2)} ({sign}{data.change_percent?.toFixed(1)}%)
         </span>
       )}
     </div>
@@ -73,8 +74,8 @@ export default function MarketOverviewBar() {
 
   return (
     <div className="market-overview-bar">
-      <OverviewItem label="S&P 500" data={data.spy} />
-      <OverviewItem label="NASDAQ" data={data.qqq} />
+      <OverviewItem label="S&P 500" data={data.spy} prefix="$" />
+      <OverviewItem label="NASDAQ" data={data.qqq} prefix="$" />
       <OverviewItem
         label="VIX"
         data={data.vix}

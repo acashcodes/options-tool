@@ -19,8 +19,13 @@ const TEMPLATES = [
   },
   {
     label: 'Covered Call', value: 'covered_call',
-    desc: 'Income strategy for stockholders. Sell a call against shares you own. Caps your upside but generates premium income.',
-    legs: 'Sell 1 OTM call (assumes you own 100 shares)',
+    desc: 'Income strategy: Buy 100 shares and sell a call against them. Caps your upside but generates premium income.',
+    legs: 'Buy 100 shares + Sell 1 OTM call',
+  },
+  {
+    label: 'Collar', value: 'collar',
+    desc: 'Protective strategy: Buy 100 shares, buy a put for downside protection, sell a call to offset the put cost.',
+    legs: 'Buy 100 shares + Buy 1 OTM put + Sell 1 OTM call',
   },
   {
     label: 'Bull Call Spread', value: 'bull_call_spread',
@@ -121,7 +126,21 @@ function generateTemplateLegs(template, currentPrice, chain, expiration) {
     }
     case 'covered_call': {
       const c = nearestStrike(calls, otmCallTarget);
-      return c ? [leg('Call', c.strike, 'sell', c)] : [];
+      if (!c) return [];
+      return [
+        { instrument: 'stock', action: 'buy', quantity: 100, entry_price: currentPrice, premium: currentPrice },
+        leg('Call', c.strike, 'sell', c),
+      ];
+    }
+    case 'collar': {
+      const c = nearestStrike(calls, otmCallTarget);
+      const p = nearestStrike(puts, otmPutTarget);
+      if (!c || !p) return [];
+      return [
+        { instrument: 'stock', action: 'buy', quantity: 100, entry_price: currentPrice, premium: currentPrice },
+        leg('Put', p.strike, 'buy', p),
+        leg('Call', c.strike, 'sell', c),
+      ];
     }
     case 'bull_call_spread': {
       const buy = nearestStrike(calls, atm);
@@ -308,7 +327,8 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
   }
 
   function updateQuantity(index, qty) {
-    const q = Math.max(1, Math.min(100, qty));
+    const isStock = legs[index]?.instrument === 'stock';
+    const q = Math.max(1, Math.min(isStock ? 10000 : 100, qty));
     const updated = legs.map((leg, i) =>
       i === index ? { ...leg, quantity: q } : leg
     );
@@ -320,12 +340,72 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
     setTemplate('custom');
   }
 
+  function addStockLeg() {
+    const stockLeg = {
+      instrument: 'stock',
+      action: 'buy',
+      quantity: 100,
+      entry_price: currentPrice || 0,
+      premium: currentPrice || 0,
+    };
+    onLegsChange([...legs, stockLeg]);
+    setTemplate('custom');
+  }
+
   const netPremium = legs.reduce((sum, leg) => {
+    if (leg.instrument === 'stock') {
+      // Stock: buy = cash outflow, sell = inflow
+      const cost = (leg.entry_price || leg.premium || 0) * leg.quantity;
+      return sum + (leg.action === 'buy' ? -cost : cost);
+    }
     const cost = (leg.premium || 0) * leg.quantity * 100;
     return sum + (leg.action === 'buy' ? -cost : cost);
   }, 0);
 
   const isDebit = netPremium < 0;
+
+  // Compute strategy summary metrics
+  let maxProfit = null, maxLoss = null, breakevens = [];
+  if (legs.length > 0 && currentPrice) {
+    const optionLegs = legs.filter(l => !l.instrument || l.instrument !== 'stock');
+    const stockLegs = legs.filter(l => l.instrument === 'stock');
+
+    // For single-leg or simple spreads, compute approximate max profit/loss
+    if (optionLegs.length > 0) {
+      // Max loss for debit strategies = net premium paid
+      if (isDebit && stockLegs.length === 0) {
+        maxLoss = Math.abs(netPremium);
+      }
+      // Max profit for credit strategies = net premium received
+      if (!isDebit && stockLegs.length === 0) {
+        maxProfit = Math.abs(netPremium);
+      }
+
+      // For vertical spreads (2 legs, same type, same expiry)
+      if (optionLegs.length === 2 && optionLegs[0].type === optionLegs[1].type &&
+          optionLegs[0].expiration === optionLegs[1].expiration) {
+        const spread = Math.abs(optionLegs[0].strike - optionLegs[1].strike) * 100;
+        if (isDebit) {
+          maxProfit = spread - Math.abs(netPremium);
+          maxLoss = Math.abs(netPremium);
+        } else {
+          maxProfit = Math.abs(netPremium);
+          maxLoss = spread - Math.abs(netPremium);
+        }
+      }
+    }
+
+    // Simple breakeven for single option
+    if (optionLegs.length === 1 && stockLegs.length === 0) {
+      const leg = optionLegs[0];
+      const prem = (leg.premium || 0);
+      if (leg.type === 'Call') {
+        breakevens = [+(leg.strike + (leg.action === 'buy' ? prem : -prem)).toFixed(2)];
+      } else {
+        breakevens = [+(leg.strike - (leg.action === 'buy' ? prem : -prem)).toFixed(2)];
+      }
+    }
+  }
 
   return (
     <div className="strategy-builder">
@@ -341,6 +421,7 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
               <option key={t.value} value={t.value}>{t.label}</option>
             ))}
           </select>
+          <button className="btn-ghost" onClick={addStockLeg}>+ Stock Leg</button>
           {legs.length > 0 && (
             <button className="btn-ghost" onClick={clearAll}>Clear All</button>
           )}
@@ -387,17 +468,28 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
               </thead>
               <tbody>
                 {legs.map((leg, i) => {
-                  const cost = (leg.premium || 0) * leg.quantity * 100;
-                  const costSigned = leg.action === 'buy' ? -cost : cost;
+                  const isStock = leg.instrument === 'stock';
+                  let cost, costSigned;
+                  if (isStock) {
+                    cost = (leg.entry_price || leg.premium || 0) * leg.quantity;
+                    costSigned = leg.action === 'buy' ? -cost : cost;
+                  } else {
+                    cost = (leg.premium || 0) * leg.quantity * 100;
+                    costSigned = leg.action === 'buy' ? -cost : cost;
+                  }
                   return (
                     <tr key={i}>
                       <td>
-                        <span className={`leg-type-badge ${leg.type === 'Call' ? 'type-call' : 'type-put'}`}>
-                          {leg.type}
-                        </span>
+                        {isStock ? (
+                          <span className="leg-type-badge type-stock">Stock</span>
+                        ) : (
+                          <span className={`leg-type-badge ${leg.type === 'Call' ? 'type-call' : 'type-put'}`}>
+                            {leg.type}
+                          </span>
+                        )}
                       </td>
-                      <td className="mono">${fmt(leg.strike)}</td>
-                      <td className="mono">{leg.expiration}</td>
+                      <td className="mono">{isStock ? '\u2014' : `$${fmt(leg.strike)}`}</td>
+                      <td className="mono">{isStock ? '\u2014' : leg.expiration}</td>
                       <td>
                         <button
                           className={`action-toggle ${leg.action}`}
@@ -410,13 +502,15 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
                         <input
                           type="number"
                           min={1}
-                          max={100}
+                          max={isStock ? 10000 : 100}
                           value={leg.quantity}
                           onChange={(e) => updateQuantity(i, parseInt(e.target.value) || 1)}
                           className="qty-input"
                         />
                       </td>
-                      <td className="mono">${fmt(leg.premium)}</td>
+                      <td className="mono">
+                        {isStock ? `$${fmt(leg.entry_price || leg.premium)}` : `$${fmt(leg.premium)}`}
+                      </td>
                       <td className={`mono ${costSigned >= 0 ? 'text-green' : 'text-red'}`}>
                         {costSigned >= 0 ? '+' : ''}{fmt(costSigned)}
                       </td>
@@ -432,20 +526,38 @@ export default function StrategyBuilder({ legs, onLegsChange, currentPrice, chai
             </table>
           </div>
 
-          <div className="builder-footer">
-            <div className="net-premium">
-              <span className="net-label">
-                Net {isDebit ? 'Debit' : 'Credit'}
-              </span>
-              <span className={`net-value ${isDebit ? 'text-red' : 'text-green'}`}>
-                ${fmt(Math.abs(netPremium))}
-              </span>
+          <div className="strategy-sticky-bar">
+            <div className="sticky-bar-metrics">
+              <div className="sticky-metric">
+                <span className="sticky-label">Net {isDebit ? 'Debit' : 'Credit'}</span>
+                <span className={`sticky-value ${isDebit ? 'text-red' : 'text-green'}`}>
+                  ${fmt(Math.abs(netPremium))}
+                </span>
+              </div>
+              {maxProfit != null && (
+                <div className="sticky-metric">
+                  <span className="sticky-label">Max Profit</span>
+                  <span className="sticky-value text-green">${fmt(maxProfit)}</span>
+                </div>
+              )}
+              {maxLoss != null && (
+                <div className="sticky-metric">
+                  <span className="sticky-label">Max Loss</span>
+                  <span className="sticky-value text-red">${fmt(maxLoss)}</span>
+                </div>
+              )}
+              {breakevens.length > 0 && (
+                <div className="sticky-metric">
+                  <span className="sticky-label">Breakeven</span>
+                  <span className="sticky-value">${breakevens.join(' / $')}</span>
+                </div>
+              )}
             </div>
-            <div className="builder-footer-right">
+            <div className="sticky-bar-actions">
               {onSaveToSlot && legs.length > 0 && (
                 <div className="save-slot-btns">
-                  <button className="btn-slot" onClick={() => onSaveToSlot('A')}>Save as A</button>
-                  <button className="btn-slot" onClick={() => onSaveToSlot('B')}>Save as B</button>
+                  <button className="btn-slot" onClick={() => onSaveToSlot('A')}>A</button>
+                  <button className="btn-slot" onClick={() => onSaveToSlot('B')}>B</button>
                 </div>
               )}
               <button className="btn-analyze" onClick={onAnalyze} disabled={legs.length === 0}>

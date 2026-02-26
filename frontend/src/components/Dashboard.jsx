@@ -3,6 +3,7 @@ import { getEnrichedPortfolio } from '../api/client';
 import ManagePortfolioModal from './ManagePortfolioModal';
 import HoldingsTable from './HoldingsTable';
 import PortfolioCharts from './PortfolioCharts';
+import RiskPanel from './RiskPanel';
 import MarketOverviewBar from './MarketOverviewBar';
 import AlertsPanel from './AlertsPanel';
 import WatchlistTable from './WatchlistTable';
@@ -180,13 +181,13 @@ export default function Dashboard({ onNavigateToAnalysis }) {
               label="Day P&L"
               value={fmtPnl(m.day_pnl)}
               sub={m.day_pnl_percent != null ? `${m.day_pnl_percent >= 0 ? '+' : ''}${m.day_pnl_percent.toFixed(2)}%` : null}
-              color={m.day_pnl >= 0 ? 'cyan' : 'red'}
+              color={m.day_pnl >= 0 ? 'green' : 'red'}
             />
             <MetricCard
               label="Total P&L"
               value={fmtPnl(m.total_pnl)}
               sub={m.total_pnl_percent != null ? `${m.total_pnl_percent >= 0 ? '+' : ''}${m.total_pnl_percent.toFixed(2)}%` : null}
-              color={m.total_pnl >= 0 ? 'cyan' : 'red'}
+              color={m.total_pnl >= 0 ? 'green' : 'red'}
             />
             <MetricCard
               label="Gross Exposure"
@@ -268,6 +269,9 @@ export default function Dashboard({ onNavigateToAnalysis }) {
             concentration={m.concentration}
             sectorBreakdown={m.sector_breakdown}
           />
+
+          {/* Risk Metrics */}
+          <RiskPanel />
         </>
       )}
 

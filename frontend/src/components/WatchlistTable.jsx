@@ -25,7 +25,7 @@ function fmt(v) {
 function fmtPct(v) {
   if (v == null) return '\u2014';
   const sign = v >= 0 ? '+' : '';
-  return `${sign}${Number(v).toFixed(2)}%`;
+  return `${sign}${Number(v).toFixed(1)}%`;
 }
 
 function fmtRank(v) {
@@ -103,10 +103,10 @@ export default function WatchlistTable({ onNavigateToAnalysis }) {
       case 'ticker':
         return <span className="ticker-cell">{v}</span>;
       case 'price':
-        return fmt(v);
+        return v != null ? `$${fmt(v)}` : '\u2014';
       case 'change': {
         const cls = v >= 0 ? 'color-cyan' : 'color-red';
-        return <span className={cls}>{v != null ? `${v >= 0 ? '+' : ''}${fmt(v)}` : '\u2014'}</span>;
+        return <span className={cls}>{v != null ? `${v >= 0 ? '+' : ''}$${fmt(v)}` : '\u2014'}</span>;
       }
       case 'change_percent': {
         const cls = v >= 0 ? 'color-cyan' : 'color-red';
@@ -117,7 +117,7 @@ export default function WatchlistTable({ onNavigateToAnalysis }) {
         return fmtRank(v);
       case 'high_52w':
       case 'low_52w':
-        return fmt(v);
+        return v != null ? `$${fmt(v)}` : '\u2014';
       case 'earnings_date':
         return v || '\u2014';
       default:

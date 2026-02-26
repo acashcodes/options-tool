@@ -1,8 +1,8 @@
 import { PieChart, Pie, Cell, BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts';
 
 const COLORS = [
-  '#00d4aa', '#3498db', '#8b5cf6', '#ffa502', '#ff4757',
-  '#2ecc71', '#e74c3c', '#1abc9c', '#f39c12', '#9b59b6',
+  '#00d4aa', '#2563eb', '#8b5cf6', '#ffa502', '#ff4757',
+  '#06b6d4', '#a855f7', '#10b981', '#f59e0b', '#ef4444',
 ];
 
 export default function PortfolioCharts({ concentration, sectorBreakdown }) {

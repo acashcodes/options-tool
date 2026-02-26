@@ -5,3 +5,14 @@ __pycache__/
 .env
 *.log
 .DS_Store
+
+# SQLite databases (local data, never committed)
+*.db
+*.db-shm
+*.db-wal
+
+# Claude Code session worktrees
+.claude/
+
+# Python test cache
+.pytest_cache/

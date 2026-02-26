@@ -41,6 +41,14 @@ function formatExpiry(dateStr) {
   return `${month} ${day} (${dte}d)`;
 }
 
+function isMonthlyExpiry(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const dayOfWeek = d.getDay(); // 0=Sun...5=Fri
+  const dayOfMonth = d.getDate();
+  // Third Friday: Friday between 15th-21st
+  return dayOfWeek === 5 && dayOfMonth >= 15 && dayOfMonth <= 21;
+}
+
 function ChainTable({ options, type, volumeThreshold, onAddLeg, selectedExpiry }) {
   if (!options || options.length === 0) {
     return <div className="loading">No {type} data available</div>;
@@ -74,10 +82,10 @@ function ChainTable({ options, type, volumeThreshold, onAddLeg, selectedExpiry }
             <th>Vol</th>
             <th>OI</th>
             <th>IV</th>
-            <th className="greek-col">Delta</th>
-            <th className="greek-col">Gamma</th>
-            <th className="greek-col">Theta</th>
-            <th className="greek-col">Vega</th>
+            <th className="greek-col" title="How much the option price changes per $1 move in the stock">Delta</th>
+            <th className="greek-col" title="Rate of change of delta — how fast delta shifts">Gamma</th>
+            <th className="greek-col" title="Daily time decay — how much value the option loses per day">Theta</th>
+            <th className="greek-col" title="Sensitivity to volatility — price change per 1% IV move">Vega</th>
           </tr>
         </thead>
         <tbody>
@@ -186,6 +194,31 @@ export default function OptionsChain({ symbol, currentPrice, onAddLeg }) {
   const filteredPuts = filterByStrike(chain?.puts);
   const volumeThreshold = getVolumeThreshold();
 
+  // Chain summary metrics
+  let atmIV = null, expectedMove = null, pcRatio = null, totalVol = 0;
+  if (chain && currentPrice) {
+    const allCalls = chain.calls || [];
+    const allPuts = chain.puts || [];
+
+    const atmCall = allCalls.length ? allCalls.reduce((best, c) => Math.abs(c.strike - currentPrice) < Math.abs(best.strike - currentPrice) ? c : best) : null;
+    const atmPut = allPuts.length ? allPuts.reduce((best, p) => Math.abs(p.strike - currentPrice) < Math.abs(best.strike - currentPrice) ? p : best) : null;
+
+    if (atmCall?.implied_volatility && atmPut?.implied_volatility) {
+      atmIV = (atmCall.implied_volatility + atmPut.implied_volatility) / 2;
+    }
+
+    if (atmCall?.last_price != null && atmPut?.last_price != null && currentPrice) {
+      const straddle = (atmCall.bid != null && atmCall.ask != null ? (atmCall.bid + atmCall.ask) / 2 : atmCall.last_price) +
+                       (atmPut.bid != null && atmPut.ask != null ? (atmPut.bid + atmPut.ask) / 2 : atmPut.last_price);
+      expectedMove = (straddle / currentPrice) * 100;
+    }
+
+    const callVol = allCalls.reduce((s, c) => s + (c.volume || 0), 0);
+    const putVol = allPuts.reduce((s, p) => s + (p.volume || 0), 0);
+    totalVol = callVol + putVol;
+    pcRatio = callVol > 0 ? putVol / callVol : null;
+  }
+
   const visibleExpiries = expirations.slice(0, 8);
   const overflowExpiries = expirations.slice(8);
   const isOverflowSelected = overflowExpiries.includes(selectedExpiry);
@@ -197,15 +230,19 @@ export default function OptionsChain({ symbol, currentPrice, onAddLeg }) {
       {expirations.length > 0 && (
         <div className="chain-controls">
           <div className="expiry-tabs">
-            {visibleExpiries.map((exp) => (
-              <button
-                key={exp}
-                className={selectedExpiry === exp ? 'active' : ''}
-                onClick={() => setSelectedExpiry(exp)}
-              >
-                {formatExpiry(exp)}
-              </button>
-            ))}
+            {visibleExpiries.map((exp) => {
+              const dte = daysUntil(exp);
+              const isNearTerm = dte <= 7;
+              return (
+                <button
+                  key={exp}
+                  className={`${selectedExpiry === exp ? 'active' : ''} ${isNearTerm ? 'expiry-near' : ''}`}
+                  onClick={() => setSelectedExpiry(exp)}
+                >
+                  {formatExpiry(exp)}
+                </button>
+              );
+            })}
             {overflowExpiries.length > 0 && (
               <select
                 value={isOverflowSelected ? selectedExpiry : ''}
@@ -247,6 +284,15 @@ export default function OptionsChain({ symbol, currentPrice, onAddLeg }) {
             />
             <span className="range-value">{strikeRange}%</span>
           </div>
+        </div>
+      )}
+
+      {!loading && chain && (
+        <div className="chain-summary-bar">
+          {atmIV != null && <div className="chain-summary-item"><span className="chain-summary-label">ATM IV</span><span className="chain-summary-value">{atmIV.toFixed(1)}%</span></div>}
+          {expectedMove != null && <div className="chain-summary-item"><span className="chain-summary-label">Expected Move</span><span className="chain-summary-value">&plusmn;{expectedMove.toFixed(1)}%</span></div>}
+          {pcRatio != null && <div className="chain-summary-item"><span className="chain-summary-label">P/C Ratio</span><span className={`chain-summary-value ${pcRatio > 1 ? 'color-red' : 'color-cyan'}`}>{pcRatio.toFixed(2)}</span></div>}
+          <div className="chain-summary-item"><span className="chain-summary-label">Total Volume</span><span className="chain-summary-value">{totalVol.toLocaleString()}</span></div>
         </div>
       )}
 

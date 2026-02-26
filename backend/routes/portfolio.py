@@ -10,7 +10,7 @@ from fastapi import APIRouter, HTTPException, UploadFile, File
 from pydantic import BaseModel
 
 from data_provider import DataProvider
-from models import PositionCreate, AssetType
+from models import PositionCreate, AssetType, Direction
 import portfolio_store as store
 import ocr_parser
 
@@ -22,6 +22,7 @@ class PositionUpdate(BaseModel):
     avg_cost: Optional[float] = None
     strike: Optional[float] = None
     expiration: Optional[str] = None
+    direction: Optional[Direction] = None
 
 
 def create_portfolio_routes(provider: DataProvider) -> APIRouter:
@@ -95,6 +96,9 @@ def create_portfolio_routes(provider: DataProvider) -> APIRouter:
                     strike = float(row["strike"])
                 expiration = row.get("expiration") or row.get("expiry") or None
 
+                raw_dir = (row.get("direction") or "long").lower()
+                direction = "short" if raw_dir in ("short", "s", "sell") else "long"
+
                 rows.append({
                     "ticker": ticker.upper(),
                     "asset_type": asset_type,
@@ -102,6 +106,7 @@ def create_portfolio_routes(provider: DataProvider) -> APIRouter:
                     "avg_cost": cost,
                     "strike": strike,
                     "expiration": expiration,
+                    "direction": direction,
                 })
             except (ValueError, KeyError) as e:
                 errors.append(f"Row {i}: {e}")
@@ -154,5 +159,69 @@ def create_portfolio_routes(provider: DataProvider) -> APIRouter:
 
         result = enrichment.enrich_portfolio(positions, provider)
         return result
+
+    @router.get("/risk")
+    def get_risk_metrics():
+        """Compute portfolio risk metrics: correlations, beta, stress tests."""
+        import risk_metrics
+
+        positions = store.load_positions()
+        if not positions:
+            return {
+                "correlations": [],
+                "betas": {},
+                "portfolio_beta": None,
+                "stress_tests": [],
+            }
+
+        # Get unique tickers + SPY for beta
+        tickers = list({p.ticker.upper() for p in positions})
+        all_tickers = list(set(tickers + ["SPY"]))
+
+        # Compute returns
+        returns = risk_metrics.compute_return_series(provider, all_tickers, lookback="6mo")
+        if not returns:
+            return {
+                "correlations": [],
+                "betas": {},
+                "portfolio_beta": None,
+                "stress_tests": [],
+            }
+
+        # Correlations
+        correlations = risk_metrics.compute_correlations(returns)
+
+        # Betas
+        betas = risk_metrics.compute_realized_beta(returns, benchmark="SPY")
+
+        # Portfolio beta (weighted by market value from enriched data)
+        enriched = enrichment.enrich_portfolio(positions, provider)
+        weights = {}
+        for ep in enriched.get("positions", []):
+            t = ep.get("ticker", "")
+            mv = ep.get("market_value") or 0
+            weights[t] = weights.get(t, 0) + mv
+
+        portfolio_beta = risk_metrics.compute_portfolio_beta(betas, weights)
+
+        # Stress tests
+        greeks = enriched.get("metrics", {}).get("greeks", {})
+        port_delta = greeks.get("delta") or 0
+        port_gamma = greeks.get("gamma") or 0
+
+        try:
+            spy_quote = provider.get_quote("SPY")
+            spy_price = spy_quote.get("price", 500)
+        except Exception:
+            spy_price = 500
+
+        stress_tests = risk_metrics.compute_stress_tests(port_delta, port_gamma, spy_price)
+
+        return {
+            "correlations": correlations,
+            "betas": betas,
+            "portfolio_beta": portfolio_beta,
+            "stress_tests": stress_tests,
+        }
 
     return router

@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import {
   ResponsiveContainer,
   ComposedChart,
@@ -11,6 +11,7 @@ import {
   ReferenceLine,
   Label,
 } from 'recharts';
+import { analyzeStrategy as analyzeStrategyAPI } from '../api/client';
 
 function fmt(n) {
   if (n == null) return '—';
@@ -28,202 +29,73 @@ function pctReturn(pl, capital) {
   return ((pl / Math.abs(capital)) * 100).toFixed(1);
 }
 
-// ---------------------------------------------------------------------------
-// Client-side Black-Scholes for pre-expiration curves
-// ---------------------------------------------------------------------------
-
-// Standard normal CDF approximation (Abramowitz & Stegun)
-function normCDF(x) {
-  const a1 = 0.254829592, a2 = -0.284496736, a3 = 1.421413741;
-  const a4 = -1.453152027, a5 = 1.061405429, p = 0.3275911;
-  const sign = x < 0 ? -1 : 1;
-  x = Math.abs(x) / Math.SQRT2;
-  const t = 1.0 / (1.0 + p * x);
-  const y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * Math.exp(-x * x);
-  return 0.5 * (1.0 + sign * y);
-}
-
-function bsPrice(S, K, t, r, sigma, optType) {
-  if (t <= 0) {
-    return optType === 'call' ? Math.max(0, S - K) : Math.max(0, K - S);
+// Convert frontend leg to backend StrategyLeg schema
+function toBackendLeg(leg) {
+  if (leg.instrument === 'stock') {
+    return {
+      instrument: 'stock',
+      action: leg.action,
+      quantity: leg.quantity,
+      entry_price: leg.entry_price || leg.premium || 0,
+    };
   }
-  if (sigma <= 0) {
-    const fwd = S * Math.exp(r * t);
-    return optType === 'call'
-      ? Math.max(0, fwd - K) * Math.exp(-r * t)
-      : Math.max(0, K - fwd) * Math.exp(-r * t);
-  }
-  const sqrtT = Math.sqrt(t);
-  const d1 = (Math.log(S / K) + (r + 0.5 * sigma * sigma) * t) / (sigma * sqrtT);
-  const d2 = d1 - sigma * sqrtT;
-  if (optType === 'call') {
-    return S * normCDF(d1) - K * Math.exp(-r * t) * normCDF(d2);
-  }
-  return K * Math.exp(-r * t) * normCDF(-d2) - S * normCDF(-d1);
+  return {
+    instrument: 'option',
+    option_type: leg.type === 'Call' ? 'call' : 'put',
+    action: leg.action,
+    quantity: leg.quantity,
+    strike: leg.strike,
+    expiration: leg.expiration,
+    iv: leg.iv != null ? leg.iv / 100 : null, // UI stores percent, backend wants decimal
+    multiplier: 100,
+    entry_price: leg.premium || 0,
+    bid: leg.bid,
+    ask: leg.ask,
+  };
 }
 
-// ---------------------------------------------------------------------------
-// Payoff functions
-// ---------------------------------------------------------------------------
-
-function legPayoff(leg, stockPrice) {
-  const { type, strike, action, quantity, premium } = leg;
-  const multiplier = action === 'buy' ? 1 : -1;
-  let intrinsic = 0;
-  if (type === 'Call') {
-    intrinsic = Math.max(0, stockPrice - strike);
-  } else {
-    intrinsic = Math.max(0, strike - stockPrice);
-  }
-  const payoffPerContract = (intrinsic * multiplier - premium * (action === 'buy' ? 1 : -1)) * 100;
-  return payoffPerContract * quantity;
+// Build the full payload for the backend
+function buildPayload(legs, currentPrice, daysForward = 0, quote = null) {
+  return {
+    underlying: {
+      price: currentPrice,
+      dividend_yield: quote?.dividend_yield || 0,
+    },
+    legs: legs.map(toBackendLeg),
+    days_forward: daysForward,
+    curve_points: 200,
+  };
 }
 
-export function strategyPayoff(legs, stockPrice) {
-  return legs.reduce((total, leg) => total + legPayoff(leg, stockPrice), 0);
-}
-
-// Pre-expiration P&L: BS theoretical value minus entry cost
-function legPreExpPL(leg, stockPrice, tYears, r) {
-  const { type, strike, action, quantity, premium, iv } = leg;
-  const optType = type === 'Call' ? 'call' : 'put';
-  const sigma = iv != null ? iv / 100 : 0.30; // fallback to 30% if no IV
-  const currentValue = bsPrice(stockPrice, strike, tYears, r, sigma, optType);
-  const multiplier = action === 'buy' ? 1 : -1;
-  const entryPremium = premium * (action === 'buy' ? 1 : -1);
-  const plPerContract = (currentValue * multiplier - entryPremium) * 100;
-  return plPerContract * quantity;
-}
-
-function strategyPreExpPL(legs, stockPrice, tYears, r = 0.045) {
-  return legs.reduce((total, leg) => total + legPreExpPL(leg, stockPrice, tYears, r), 0);
-}
-
-export function findBreakevens(legs, priceMin, priceMax, steps = 10000) {
-  const breakevens = [];
-  const step = (priceMax - priceMin) / steps;
-  let prevPL = strategyPayoff(legs, priceMin);
-  for (let i = 1; i <= steps; i++) {
-    const price = priceMin + step * i;
-    const pl = strategyPayoff(legs, price);
-    if ((prevPL < 0 && pl >= 0) || (prevPL >= 0 && pl < 0)) {
-      const ratio = Math.abs(prevPL) / (Math.abs(prevPL) + Math.abs(pl));
-      breakevens.push(+(price - step + step * ratio).toFixed(2));
-    }
-    prevPL = pl;
-  }
-  return breakevens;
-}
-
-// Probability that stock finishes above a given price (log-normal model)
-function probAbove(S, target, tYears, sigma, r = 0.045) {
-  if (tYears <= 0) return S > target ? 1 : 0;
-  if (sigma <= 0) return S * Math.exp(r * tYears) > target ? 1 : 0;
-  const d2 = (Math.log(S / target) + (r - 0.5 * sigma * sigma) * tYears) / (sigma * Math.sqrt(tYears));
-  return normCDF(d2);
-}
-
-// Estimate P(profit) by checking probability of landing in profitable regions
-function estimateProbOfProfit(legs, currentPrice, breakevens, priceMin, priceMax) {
-  if (!legs.length || !breakevens.length) return null;
-
-  // Get average IV and DTE across legs
-  let totalIV = 0, ivCount = 0, maxDTE = 30;
+// Compute max DTE from leg expirations
+function getMaxDTE(legs) {
+  let max = 30;
   for (const leg of legs) {
-    if (leg.iv != null) { totalIV += leg.iv; ivCount++; }
     if (leg.expiration) {
       const exp = new Date(leg.expiration + 'T00:00:00');
-      const now = new Date(); now.setHours(0, 0, 0, 0);
+      const now = new Date();
+      now.setHours(0, 0, 0, 0);
       const days = Math.round((exp - now) / 86400000);
-      if (days > maxDTE) maxDTE = days;
+      if (days > max) max = days;
     }
   }
-  const sigma = ivCount > 0 ? (totalIV / ivCount) / 100 : 0.30;
-  const tYears = maxDTE / 365;
-
-  // Check profitability at boundaries and breakevens to identify profit regions
-  const sortedBE = [...breakevens].sort((a, b) => a - b);
-  const testPoints = [0.01, ...sortedBE, priceMax * 2];
-
-  let profitProb = 0;
-  // Test midpoint between each adjacent pair of test points
-  for (let i = 0; i < testPoints.length - 1; i++) {
-    const lo = testPoints[i];
-    const hi = testPoints[i + 1];
-    const mid = (lo + hi) / 2;
-    const pl = strategyPayoff(legs, mid);
-    if (pl > 0) {
-      // Region [lo, hi] is profitable
-      const pHi = i + 1 < testPoints.length - 1 ? probAbove(currentPrice, lo, tYears, sigma) - probAbove(currentPrice, hi, tYears, sigma) : probAbove(currentPrice, lo, tYears, sigma);
-      profitProb += Math.max(0, pHi);
-    }
-  }
-
-  return Math.max(0, Math.min(100, profitProb * 100));
+  return max;
 }
 
-export function analyzeStrategy(legs, currentPrice) {
-  if (!legs.length || !currentPrice) return null;
-
-  const strikes = legs.map((l) => l.strike);
-  const minStrike = Math.min(...strikes);
-  const maxStrike = Math.max(...strikes);
-  const spread = maxStrike - minStrike || currentPrice * 0.2;
-  const padding = Math.max(spread * 1.5, currentPrice * 0.15);
-  const priceMin = Math.max(0, minStrike - padding);
-  const priceMax = maxStrike + padding;
-
-  const numPoints = 200;
-  const step = (priceMax - priceMin) / numPoints;
-  const data = [];
-  let maxProfit = -Infinity;
-  let maxLoss = Infinity;
-
-  for (let i = 0; i <= numPoints; i++) {
-    const price = priceMin + step * i;
-    const pl = strategyPayoff(legs, price);
-    maxProfit = Math.max(maxProfit, pl);
-    maxLoss = Math.min(maxLoss, pl);
-    data.push({
-      price: +price.toFixed(2),
-      pl: +pl.toFixed(2),
-      profit: pl >= 0 ? +pl.toFixed(2) : 0,
-      loss: pl < 0 ? +pl.toFixed(2) : 0,
-    });
-  }
-
-  // Structural unlimited detection:
-  // Net long calls > 0 → unlimited upside profit. Net short calls > 0 → unlimited upside loss.
-  // (Puts are always bounded since stock can't go below 0.)
-  const netCallQty = legs
-    .filter(l => l.type === 'Call')
-    .reduce((sum, l) => sum + (l.action === 'buy' ? l.quantity : -l.quantity), 0);
-  if (netCallQty > 0) maxProfit = Infinity;
-  if (netCallQty < 0) maxLoss = -Infinity;
-
-  // Also check P&L at extremes to tighten finite bounds
-  const farOutPL = strategyPayoff(legs, priceMax * 3);
-  const farDownPL = strategyPayoff(legs, 0.01);
-  maxProfit = Math.max(maxProfit, farOutPL, farDownPL);
-  maxLoss = Math.min(maxLoss, farOutPL, farDownPL);
-
-  const breakevens = findBreakevens(legs, priceMin, priceMax);
-
-  const netPremium = legs.reduce((sum, leg) => {
-    const cost = (leg.premium || 0) * leg.quantity * 100;
-    return sum + (leg.action === 'buy' ? -cost : cost);
+// For StrategyComparison: simple expiration payoff (kept as fallback, not for metrics)
+export function strategyPayoff(legs, stockPrice) {
+  return legs.reduce((total, leg) => {
+    if (leg.instrument === 'stock') {
+      const q = leg.action === 'buy' ? leg.quantity : -leg.quantity;
+      return total + q * (stockPrice - (leg.entry_price || leg.premium || 0));
+    }
+    const { type, strike, action, quantity, premium } = leg;
+    const multiplier = action === 'buy' ? 1 : -1;
+    const intrinsic = type === 'Call'
+      ? Math.max(0, stockPrice - strike)
+      : Math.max(0, strike - stockPrice);
+    return total + (intrinsic * multiplier - premium * (action === 'buy' ? 1 : -1)) * 100 * quantity;
   }, 0);
-
-  const totalCapital = Math.abs(netPremium);
-
-  let riskReward = null;
-  if (isFinite(maxProfit) && isFinite(maxLoss) && maxLoss !== 0) {
-    riskReward = Math.abs(maxProfit / maxLoss);
-  }
-
-  const probOfProfit = estimateProbOfProfit(legs, currentPrice, breakevens, priceMin, priceMax);
-
-  return { data, maxProfit, maxLoss, breakevens, netPremium, riskReward, totalCapital, priceMin, priceMax, probOfProfit };
 }
 
 function CustomTooltip({ active, payload, label }) {
@@ -256,51 +128,104 @@ function CustomTooltip({ active, payload, label }) {
   );
 }
 
-// Compute max DTE from leg expirations
-function getMaxDTE(legs) {
-  let max = 30;
-  for (const leg of legs) {
-    if (leg.expiration) {
-      const exp = new Date(leg.expiration + 'T00:00:00');
-      const now = new Date();
-      now.setHours(0, 0, 0, 0);
-      const days = Math.round((exp - now) / 86400000);
-      if (days > max) max = days;
-    }
-  }
-  return max;
-}
+export default function PayoffDiagram({ legs, currentPrice, title, quote }) {
+  const [analysis, setAnalysis] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState(null);
+  const maxDTE = getMaxDTE(legs);
+  const [dte, setDte] = useState(Math.min(maxDTE, getMaxDTE(legs)));
 
-export default function PayoffDiagram({ legs, currentPrice, title }) {
-  const analysis = useMemo(() => analyzeStrategy(legs, currentPrice), [legs, currentPrice]);
-  const maxDTE = useMemo(() => getMaxDTE(legs), [legs]);
-  const [dte, setDte] = useState(() => Math.min(maxDTE, getMaxDTE(legs)));
-
-  // Re-sync if legs change and DTE exceeds new max
   const effectiveDTE = Math.min(dte, maxDTE);
 
-  // Compute pre-expiration curve data
-  const chartData = useMemo(() => {
-    if (!analysis) return [];
-    const tYears = effectiveDTE / 365;
-    return analysis.data.map((d) => {
-      const preExpPL = effectiveDTE > 0
-        ? +strategyPreExpPL(legs, d.price, tYears).toFixed(2)
-        : d.pl;
-      return { ...d, preExpPL };
-    });
-  }, [analysis, legs, effectiveDTE]);
+  const fetchAnalysis = useCallback(async () => {
+    if (!legs.length || !currentPrice) return;
+    setLoading(true);
+    setError(null);
+    try {
+      const payload = buildPayload(legs, currentPrice, effectiveDTE, quote);
+      const data = await analyzeStrategyAPI(payload);
+      setAnalysis(data);
+    } catch (err) {
+      setError(err.message);
+      setAnalysis(null);
+    } finally {
+      setLoading(false);
+    }
+  }, [legs, currentPrice, effectiveDTE, quote]);
+
+  useEffect(() => {
+    fetchAnalysis();
+  }, [fetchAnalysis]);
+
+  if (loading) {
+    return (
+      <div className="payoff-section">
+        <h2>{title || 'Payoff Analysis'}</h2>
+        <div className="loading"><span className="spinner" /> Computing analysis...</div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="payoff-section">
+        <h2>{title || 'Payoff Analysis'}</h2>
+        <div className="error-msg">{error}</div>
+      </div>
+    );
+  }
 
   if (!analysis) return null;
 
-  const { maxProfit, maxLoss, breakevens, netPremium, riskReward, totalCapital, probOfProfit } = analysis;
+  const {
+    max_profit: maxProfit,
+    max_loss: maxLoss,
+    breakevens = [],
+    net_premium: netPremium,
+    risk_reward: riskReward,
+    capital_required: totalCapital,
+    requires_margin: requiresMargin,
+    pop,
+  } = analysis;
 
-  const maxProfitPct = pctReturn(maxProfit, totalCapital);
-  const maxLossPct = pctReturn(maxLoss, totalCapital);
+  // Merge expiration and MTM curves
+  const expCurve = analysis.curves?.expiration || [];
+  const mtmCurve = analysis.curves?.mtm || [];
+  const chartData = expCurve.map((d, i) => ({
+    price: d.price,
+    pl: d.pl,
+    profit: d.pl >= 0 ? d.pl : 0,
+    loss: d.pl < 0 ? d.pl : 0,
+    preExpPL: effectiveDTE > 0 && mtmCurve[i] ? mtmCurve[i].pl : undefined,
+  }));
+
+  const maxProfitPct = maxProfit != null ? pctReturn(maxProfit, totalCapital) : null;
+  const maxLossPct = maxLoss != null ? pctReturn(maxLoss, totalCapital) : null;
+  const probOfProfit = pop?.value ?? null;
+
+  // Compute P&L at current price from expiration curve
+  let plAtCurrent = null;
+  if (expCurve.length > 0) {
+    let closest = expCurve[0];
+    for (const pt of expCurve) {
+      if (Math.abs(pt.price - currentPrice) < Math.abs(closest.price - currentPrice)) {
+        closest = pt;
+      }
+    }
+    plAtCurrent = closest.pl;
+  }
 
   return (
     <div className="payoff-section">
       <h2>{title || 'Payoff Analysis'}</h2>
+
+      {analysis.assumptions_used && (
+        <div className="assumptions-badge">
+          r={((analysis.assumptions_used.risk_free_rate || 0) * 100).toFixed(2)}%
+          {analysis.assumptions_used.dividend_yield > 0 && ` q=${((analysis.assumptions_used.dividend_yield) * 100).toFixed(2)}%`}
+          {' '}BSM
+        </div>
+      )}
 
       <div className="payoff-layout">
         <div className="payoff-chart-container">
@@ -340,29 +265,29 @@ export default function PayoffDiagram({ legs, currentPrice, title }) {
                   <stop offset="100%" stopColor="#ff4757" stopOpacity={0.3} />
                 </linearGradient>
               </defs>
-              <CartesianGrid stroke="#1a1a2e" strokeDasharray="3 3" />
+              <CartesianGrid stroke="#e0e0e8" strokeDasharray="3 3" />
               <XAxis
                 dataKey="price"
                 type="number"
                 domain={['dataMin', 'dataMax']}
-                tick={{ fill: '#5a5a72', fontSize: 11 }}
+                tick={{ fill: '#6a6a7a', fontSize: 11 }}
                 tickFormatter={(v) => `$${v.toFixed(0)}`}
-                stroke="#2a2a3e"
+                stroke="#c5cad6"
               >
-                <Label value="Stock Price at Expiration" position="bottom" offset={10} fill="#5a5a72" fontSize={11} />
+                <Label value="Stock Price at Expiration" position="bottom" offset={10} fill="#6a6a7a" fontSize={11} />
               </XAxis>
               <YAxis
-                tick={{ fill: '#5a5a72', fontSize: 11 }}
+                tick={{ fill: '#6a6a7a', fontSize: 11 }}
                 tickFormatter={(v) => fmtCompact(v)}
-                stroke="#2a2a3e"
+                stroke="#c5cad6"
               >
-                <Label value="Profit / Loss ($)" angle={-90} position="insideLeft" offset={0} fill="#5a5a72" fontSize={11} style={{ textAnchor: 'middle' }} />
+                <Label value="Profit / Loss ($)" angle={-90} position="insideLeft" offset={0} fill="#6a6a7a" fontSize={11} style={{ textAnchor: 'middle' }} />
               </YAxis>
               <Tooltip content={<CustomTooltip />} />
-              <ReferenceLine y={0} stroke="#3a3a52" strokeWidth={1} />
+              <ReferenceLine y={0} stroke="#b0b0c0" strokeWidth={1} />
               <ReferenceLine
                 x={currentPrice}
-                stroke="#5a5a72"
+                stroke="#9a9ab0"
                 strokeDasharray="6 4"
                 label={{
                   value: `Current: $${currentPrice.toFixed(2)}`,
@@ -393,7 +318,7 @@ export default function PayoffDiagram({ legs, currentPrice, title }) {
                 <Line
                   type="monotone"
                   dataKey="preExpPL"
-                  stroke="#3498db"
+                  stroke="#2563eb"
                   strokeWidth={2}
                   strokeDasharray="6 3"
                   dot={false}
@@ -408,18 +333,18 @@ export default function PayoffDiagram({ legs, currentPrice, title }) {
           <div className="payoff-stat-card profit-card">
             <span className="stat-label">Max Profit</span>
             <span className="stat-value text-green">
-              {isFinite(maxProfit) ? `$${fmt(maxProfit)}` : 'Unlimited'}
+              {maxProfit != null ? `$${fmt(maxProfit)}` : 'Unlimited'}
             </span>
-            {isFinite(maxProfit) && maxProfitPct && (
+            {maxProfit != null && maxProfitPct && (
               <span className="stat-pct text-green">+{maxProfitPct}% return</span>
             )}
           </div>
           <div className="payoff-stat-card loss-card">
             <span className="stat-label">Max Loss</span>
             <span className="stat-value text-red">
-              {isFinite(maxLoss) ? `$${fmt(maxLoss)}` : 'Unlimited'}
+              {maxLoss != null ? `$${fmt(maxLoss)}` : 'Unlimited'}
             </span>
-            {isFinite(maxLoss) && maxLossPct && (
+            {maxLoss != null && maxLossPct && (
               <span className="stat-pct text-red">{maxLossPct}% return</span>
             )}
           </div>
@@ -440,12 +365,20 @@ export default function PayoffDiagram({ legs, currentPrice, title }) {
             )}
           </div>
           <div className="payoff-stat-card">
+            <span className="stat-label">Capital Required</span>
+            <span className="stat-value">
+              ${fmt(totalCapital)}
+            </span>
+            {requiresMargin && (
+              <span className="stat-pct" style={{ color: '#ffa502' }}>
+                Margin required
+              </span>
+            )}
+          </div>
+          <div className="payoff-stat-card">
             <span className="stat-label">Net Premium</span>
             <span className={`stat-value ${netPremium >= 0 ? 'text-green' : 'text-red'}`}>
               {netPremium >= 0 ? 'Credit ' : 'Debit '}${fmt(Math.abs(netPremium))}
-            </span>
-            <span className="stat-pct" style={{ color: 'var(--text-muted)' }}>
-              ${fmt(Math.abs(netPremium) / 100)} per share
             </span>
           </div>
           <div className="payoff-stat-card">
@@ -454,12 +387,17 @@ export default function PayoffDiagram({ legs, currentPrice, title }) {
               {probOfProfit != null ? `${probOfProfit.toFixed(1)}%` : '—'}
             </span>
             {probOfProfit != null && (
-              <div className="range-bar" style={{ marginTop: 4 }}>
-                <div
-                  className={`range-bar-fill ${probOfProfit >= 50 ? 'fill-cyan' : 'fill-red'}`}
-                  style={{ width: `${probOfProfit}%` }}
-                />
-              </div>
+              <>
+                <div className="range-bar" style={{ marginTop: 4 }}>
+                  <div
+                    className={`range-bar-fill ${probOfProfit >= 50 ? 'fill-cyan' : 'fill-red'}`}
+                    style={{ width: `${probOfProfit}%` }}
+                  />
+                </div>
+                <span className="stat-pct" style={{ color: 'var(--text-muted)', fontSize: 10 }}>
+                  Model-based (log-normal)
+                </span>
+              </>
             )}
           </div>
           <div className="payoff-stat-card">
@@ -470,8 +408,8 @@ export default function PayoffDiagram({ legs, currentPrice, title }) {
           </div>
           <div className="payoff-stat-card">
             <span className="stat-label">P&L at Current Price</span>
-            <span className={`stat-value ${strategyPayoff(legs, currentPrice) >= 0 ? 'text-green' : 'text-red'}`}>
-              ${fmt(strategyPayoff(legs, currentPrice))}
+            <span className={`stat-value ${plAtCurrent != null && plAtCurrent >= 0 ? 'text-green' : 'text-red'}`}>
+              {plAtCurrent != null ? `$${fmt(plAtCurrent)}` : '—'}
             </span>
           </div>
         </div>

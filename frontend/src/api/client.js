@@ -103,6 +103,10 @@ export function getEnrichedPortfolio() {
   return request('/portfolio/enriched');
 }
 
+export function getPortfolioRisk() {
+  return request('/portfolio/risk');
+}
+
 export function uploadCSV(file) {
   return requestUpload('/portfolio/import/csv', file);
 }
@@ -163,6 +167,84 @@ export function updateAlertThresholds(thresholds) {
 
 export function getDashboardNews() {
   return request('/dashboard/news');
+}
+
+export function getDashboardNewsGrouped() {
+  return request('/dashboard/news/grouped');
+}
+
+// ===== Newsletter =====
+
+export function getNewsletterLatest() {
+  return request('/newsletter/latest');
+}
+
+export function getNewsletterIssue(issueId) {
+  return request(`/newsletter/issues/${encodeURIComponent(issueId)}`);
+}
+
+export function getNewsletterHistory(limit = 50, offset = 0) {
+  return request(`/newsletter/history?limit=${limit}&offset=${offset}`);
+}
+
+export function markNewsletterRead(issueId) {
+  return requestPost('/newsletter/mark_read', { issue_id: issueId });
+}
+
+export function syncNewsletter() {
+  return requestPost('/newsletter/sync_now', {});
+}
+
+export function deleteNewsletterIssue(issueId) {
+  return requestDelete(`/newsletter/issues/${encodeURIComponent(issueId)}`);
+}
+
+// ===== Valuations =====
+
+export function getValuationsSummary(source = 'all') {
+  return request(`/valuations/summary?source=${encodeURIComponent(source)}`);
+}
+
+export function getValuationsCompany(symbol) {
+  return request(`/valuations/company/${encodeURIComponent(symbol)}`);
+}
+
+export function getValuationsPeers(symbol) {
+  return request(`/valuations/peers/${encodeURIComponent(symbol)}`);
+}
+
+export function updateValuationsPeers(symbol, peers) {
+  return requestPut(`/valuations/peers/${encodeURIComponent(symbol)}`, { peers });
+}
+
+export function removeValuationsPeer(symbol, peer) {
+  return requestDelete(`/valuations/peers/${encodeURIComponent(symbol)}/${encodeURIComponent(peer)}`);
+}
+
+export function compareValuations(symbols) {
+  return requestPost('/valuations/compare', { symbols });
+}
+
+// ===== Technicals =====
+
+export function getTechnicals(symbol) {
+  return request(`/technicals/${encodeURIComponent(symbol)}`);
+}
+
+// ===== Options Analytics =====
+
+export function getOptionsAnalytics(symbol) {
+  return request(`/options/analytics/${encodeURIComponent(symbol)}`);
+}
+
+// ===== Strategy Analysis =====
+
+export function analyzeStrategy(payload) {
+  return requestPost('/strategy/analyze', payload);
+}
+
+export function getAssumptions() {
+  return request('/assumptions');
 }
 
 // ===== Strategy Recommender =====

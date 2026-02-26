@@ -31,6 +31,8 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
     total_day_pnl = 0.0
     gross_exposure = 0.0
     net_exposure = 0.0
+    long_exposure = 0.0
+    short_exposure = 0.0
     port_delta = 0.0
     port_gamma = 0.0
     port_theta = 0.0
@@ -93,6 +95,10 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
                 total_cost += cb
                 gross_exposure += abs(mv)
                 net_exposure += mv
+                if mv >= 0:
+                    long_exposure += mv
+                else:
+                    short_exposure += abs(mv)
         else:
             # Option position
             if price is not None and pos.strike and pos.expiration:
@@ -123,8 +129,16 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
                     total_mv += mv
                     total_cost += cb
                     gross_exposure += abs(mv)
-                    net_exposure += mv
-
+                    # Puts provide short exposure, calls provide long exposure
+                    if pos.asset_type == AssetType.PUT:
+                        net_exposure -= abs(mv)
+                        short_exposure += abs(mv)
+                    else:
+                        net_exposure += mv
+                        if mv >= 0:
+                            long_exposure += mv
+                        else:
+                            short_exposure += abs(mv)
                 if iv is not None and iv > 0:
                     ep["iv"] = round(iv * 100, 2)  # Store as percentage
                     t_years = _time_to_expiry(pos.expiration)
@@ -186,13 +200,22 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
     if total_abs_mv > 0:
         sector_breakdown = {k: round((v / total_abs_mv) * 100, 2) for k, v in sector_breakdown.items()}
 
-    # Concentration (top positions by weight)
+    # Concentration (aggregate by ticker, then top 10)
+    ticker_agg: dict[str, dict] = {}
+    for ep in enriched_positions:
+        t = ep["ticker"]
+        if t not in ticker_agg:
+            ticker_agg[t] = {"ticker": t, "weight": 0, "market_value": 0}
+        ticker_agg[t]["weight"] += ep.get("weight") or 0
+        ticker_agg[t]["market_value"] += ep.get("market_value") or 0
     concentration = sorted(
-        [{"ticker": ep["ticker"], "weight": ep.get("weight") or 0, "market_value": ep.get("market_value") or 0}
-         for ep in enriched_positions],
+        ticker_agg.values(),
         key=lambda x: abs(x["market_value"]),
         reverse=True,
     )[:10]
+
+    # Compute portfolio Sharpe ratio from weighted historical returns
+    sharpe_ratio = _compute_portfolio_sharpe(enriched_positions, total_mv, provider)
 
     pnl = total_mv - total_cost
     day_pnl_pct = round((total_day_pnl / (total_mv - total_day_pnl)) * 100, 2) if (total_mv - total_day_pnl) != 0 and total_day_pnl != 0 else None
@@ -205,6 +228,10 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
         "day_pnl_percent": day_pnl_pct,
         "gross_exposure": round(gross_exposure, 2),
         "net_exposure": round(net_exposure, 2),
+        "long_exposure": round(long_exposure, 2),
+        "short_exposure": round(short_exposure, 2),
+        "pct_net_long": round((long_exposure / gross_exposure) * 100, 2) if gross_exposure > 0 else None,
+        "pct_net_short": round((short_exposure / gross_exposure) * 100, 2) if gross_exposure > 0 else None,
         "leverage_ratio": round(gross_exposure / abs(net_exposure), 2) if net_exposure != 0 else None,
         "position_count": len(positions),
         "greeks": {
@@ -214,6 +241,7 @@ def enrich_portfolio(positions: list[Position], provider: Any) -> dict:
             "vega": round(port_vega, 2),
             "beta_weighted_delta": beta_weighted_delta,
         },
+        "sharpe_ratio": sharpe_ratio,
         "risk_flags": risk_flags,
         "sector_breakdown": sector_breakdown,
         "concentration": concentration,
@@ -288,11 +316,14 @@ def _time_to_expiry(expiration: str) -> float:
 def _compute_risk_flags(positions: list[dict]) -> list[str]:
     flags = []
 
-    # Position concentration > 25%
+    # Ticker-level concentration > 25% (aggregate all positions for same ticker)
+    ticker_weights: dict[str, float] = {}
     for ep in positions:
-        w = ep.get("weight") or 0
+        t = ep["ticker"]
+        ticker_weights[t] = ticker_weights.get(t, 0) + (ep.get("weight") or 0)
+    for t, w in ticker_weights.items():
         if w > 25:
-            flags.append(f"{ep['ticker']} is {w:.0f}% of portfolio (>25%)")
+            flags.append(f"{t} is {w:.0f}% of portfolio (>25%)")
 
     # Sector concentration > 40%
     sector_weights: dict[str, float] = {}
@@ -313,3 +344,69 @@ def _compute_risk_flags(positions: list[dict]) -> list[str]:
             flags.append(f"{c} positions in {s} sector")
 
     return flags
+
+
+def _compute_portfolio_sharpe(
+    enriched_positions: list[dict], total_mv: float, provider: Any
+) -> Optional[float]:
+    """Compute annualised Sharpe ratio from 60-day weighted portfolio returns.
+
+    Uses each stock position's historical daily returns, weighted by current
+    portfolio weight.  Options are skipped (their P&L is path-dependent and
+    not captured well by underlying returns alone).
+    """
+    if total_mv <= 0:
+        return None
+
+    # Collect weights for stock positions only
+    ticker_weights: dict[str, float] = {}
+    for ep in enriched_positions:
+        if ep["asset_type"] == "stock" and ep.get("market_value"):
+            t = ep["ticker"]
+            ticker_weights[t] = ticker_weights.get(t, 0) + ep["market_value"]
+    stock_mv = sum(ticker_weights.values())
+    if stock_mv <= 0:
+        return None
+    # Normalise weights so they sum to 1
+    for t in ticker_weights:
+        ticker_weights[t] /= stock_mv
+
+    # Fetch 90-day history for each ticker (gives us ~60 trading days)
+    histories: dict[str, list[float]] = {}
+    for t in ticker_weights:
+        try:
+            hist = provider.get_history(t, period="3mo", interval="1d")
+            closes = [bar["close"] for bar in hist if bar.get("close")]
+            if len(closes) >= 20:
+                # daily returns
+                rets = [(closes[i] / closes[i - 1]) - 1 for i in range(1, len(closes))]
+                histories[t] = rets
+        except Exception:
+            continue
+
+    if not histories:
+        return None
+
+    # Use the shortest common length
+    min_len = min(len(r) for r in histories.values())
+    if min_len < 15:
+        return None
+
+    # Compute portfolio daily returns
+    import statistics
+    port_returns = []
+    for i in range(min_len):
+        day_ret = sum(
+            ticker_weights[t] * histories[t][-(min_len - i)]
+            for t in histories
+        )
+        port_returns.append(day_ret)
+
+    mean_ret = statistics.mean(port_returns)
+    std_ret = statistics.stdev(port_returns) if len(port_returns) > 1 else 0
+    if std_ret <= 0:
+        return None
+
+    # Annualise: Sharpe = (mean_daily / std_daily) * sqrt(252)
+    sharpe = (mean_ret / std_ret) * math.sqrt(252)
+    return round(sharpe, 2)

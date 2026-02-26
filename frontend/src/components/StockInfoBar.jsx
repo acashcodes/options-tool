@@ -1,3 +1,6 @@
+import { useState, useEffect } from 'react';
+import { getTechnicals } from '../api/client';
+
 function fmt(n) {
   if (n == null) return '—';
   return n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
@@ -5,10 +8,18 @@ function fmt(n) {
 
 function fmtCompact(n) {
   if (n == null) return '—';
-  if (n >= 1e12) return `$${(n / 1e12).toFixed(1)}T`;
-  if (n >= 1e9) return `$${(n / 1e9).toFixed(1)}B`;
-  if (n >= 1e6) return `$${(n / 1e6).toFixed(1)}M`;
-  return `$${n.toLocaleString()}`;
+  if (n >= 1e12) return `$${(n / 1e12).toFixed(2)}T`;
+  if (n >= 1e9) return `$${(n / 1e9).toFixed(2)}B`;
+  if (n >= 1e6) return `$${(n / 1e6).toFixed(2)}M`;
+  return `$${n.toLocaleString('en-US', { maximumFractionDigits: 2 })}`;
+}
+
+function fmtVolume(v) {
+  if (v == null) return '—';
+  if (v >= 1e9) return (v / 1e9).toFixed(2) + 'B';
+  if (v >= 1e6) return (v / 1e6).toFixed(2) + 'M';
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return v.toString();
 }
 
 function pctInRange(val, low, high) {
@@ -24,6 +35,16 @@ function ivRatioInfo(ratio) {
 }
 
 export default function StockInfoBar({ quote }) {
+  const [technicals, setTechnicals] = useState(null);
+
+  useEffect(() => {
+    if (quote?.symbol) {
+      getTechnicals(quote.symbol)
+        .then(setTechnicals)
+        .catch(() => setTechnicals(null));
+    }
+  }, [quote?.symbol]);
+
   const changeClass = quote.change >= 0 ? 'positive' : 'negative';
   const changeSign = quote.change >= 0 ? '+' : '';
   const pricePos = pctInRange(quote.price, quote.low_52w, quote.high_52w);
@@ -32,6 +53,8 @@ export default function StockInfoBar({ quote }) {
   const ivPct = quote.current_iv != null ? (quote.current_iv / maxIV) * 100 : 0;
   const hvPct = quote.hv_20d != null ? (quote.hv_20d / maxIV) * 100 : 0;
   const ratioInfo = ivRatioInfo(quote.iv_hv_ratio);
+
+  const mas = technicals?.moving_averages || [];
 
   return (
     <div className="stock-info-panel">
@@ -46,7 +69,7 @@ export default function StockInfoBar({ quote }) {
           <span className="price">${fmt(quote.price)}</span>
           {quote.change != null && (
             <span className={`change ${changeClass}`}>
-              {changeSign}{fmt(quote.change)} ({changeSign}{quote.change_percent}%)
+              {changeSign}${fmt(quote.change)} ({changeSign}{Number(quote.change_percent).toFixed(1)}%)
             </span>
           )}
         </div>
@@ -58,7 +81,7 @@ export default function StockInfoBar({ quote }) {
           </div>
           <div className="header-stat">
             <span className="label">Volume</span>
-            <span className="value">{quote.volume != null ? quote.volume.toLocaleString() : '—'}</span>
+            <span className="value">{fmtVolume(quote.volume)}</span>
           </div>
           {quote.earnings_date && (
             <div className="header-stat">
@@ -171,6 +194,28 @@ export default function StockInfoBar({ quote }) {
             </div>
           </div>
         </div>
+
+        {/* Technical Analysis — Moving Averages */}
+        {mas.length > 0 && (
+          <div className="metric-card technicals-card">
+            <div className="metric-label">Moving Averages</div>
+            <div className="technicals-grid">
+              {mas.map(ma => (
+                <div key={ma.period} className="technicals-row">
+                  <span className="technicals-ma-label">{ma.label}</span>
+                  <span className="technicals-ma-value">
+                    {ma.value != null ? `$${ma.value.toFixed(2)}` : '—'}
+                  </span>
+                  {ma.above != null && (
+                    <span className={`technicals-ma-signal ${ma.above ? 'text-green' : 'text-red'}`}>
+                      {ma.above ? 'Above' : 'Below'} ({ma.pct_distance >= 0 ? '+' : ''}{ma.pct_distance?.toFixed(2)}%)
+                    </span>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );
